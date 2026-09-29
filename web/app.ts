@@ -4,7 +4,7 @@
  */
 import Chart from 'chart.js/auto';
 import {
-  createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather,
+  createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather, Globe,
   KeyRound, Leaf, Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors,
   Send, Settings2, Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 } from 'lucide';
@@ -16,10 +16,13 @@ import {
 import {
   BUDGET_OPTIONS, eraseAllLocalData, flushLog, loadBudget, loadLog, saveBudget, saveLog,
 } from './storage';
-import { currentPlatform, drainExtensionEntries, initShareTarget, onAppPause, onAppResume, tapFeedback } from './native';
+import {
+  currentPlatform, drainExtensionEntries, initShareTarget, onAppPause, onAppResume, onInAppBrowserClosed,
+  openInAppBrowser, openSafariExtensionSettings, tapFeedback, type InAppSite,
+} from './native';
 
 const ICONS = {
-  BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather, KeyRound, Leaf,
+  BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather, Globe, KeyRound, Leaf,
   Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors, Send, Settings2,
   Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 };
@@ -231,7 +234,7 @@ function renderToday(): void {
 
 /* ---------------- Recent activity ---------------- */
 
-const SRC_ICON: Record<EntrySource, string> = { playground: 'pen-line', extension: 'puzzle', usage: 'braces', share: 'share-2' };
+const SRC_ICON: Record<EntrySource, string> = { playground: 'pen-line', extension: 'puzzle', inapp: 'globe', usage: 'braces', share: 'share-2' };
 
 function renderLog(): void {
   const list = $('#logList');
@@ -508,7 +511,7 @@ function configurePlatformCopy(): void {
   });
   const steps = platform === 'ios'
     ? [
-        'Open Settings, then Apps, Safari, Extensions, and turn on Prompt Fitness.',
+        'Tap Open Safari extension settings below (or follow the path in Settings) and turn on Prompt Fitness.',
         'Allow it on chatgpt.com, claude.ai and gemini.google.com only.',
         'Chat as usual in Safari. Replies are measured on your device as they finish.',
         'Counts appear here the next time you open the app. Only numbers are shared, through a private on-device App Group.',
@@ -521,6 +524,10 @@ function configurePlatformCopy(): void {
       ];
   const ol = $('#extSteps');
   ol.replaceChildren(...steps.map((s) => { const li = document.createElement('li'); li.textContent = s; return li; }));
+  if (platform === 'ios') {
+    $('#tabA').textContent = 'Track your chats';
+    $('#extHeading').textContent = 'Or track in Safari with the extension';
+  }
   if (platform === 'android') {
     $('#tabA').textContent = 'Share to score';
     $('#connectLabel').textContent = 'Add your AI usage';
@@ -600,13 +607,31 @@ function wire(): void {
     $<HTMLTextAreaElement>('#usageJson').value = JSON.stringify({ model: 'claude-3-5-sonnet-20241022', usage: { input_tokens: 1840, output_tokens: 512 } }, null, 2);
   });
   $('#usageImport').addEventListener('click', importUsage);
+
+  $$('[data-inapp-site]').forEach((b) => b.addEventListener('click', async () => {
+    const site = b.dataset.inappSite as InAppSite;
+    void tapFeedback();
+    if (await openInAppBrowser(site)) dlg.close();
+    else toast('The in-app browser is available in the iOS app.');
+  }));
+  $('#openSafariSettings').addEventListener('click', async () => {
+    const hint = $('#safariSettingsHint');
+    const target = await openSafariExtensionSettings();
+    hint.hidden = target === 'safari';
+    hint.textContent = target === 'app'
+      ? 'Settings opened on Prompt Fitness. Go back to Apps, then Safari, then Extensions, and turn on Prompt Fitness.'
+      : 'Open the Settings app, then follow the path above.';
+  });
 }
 
 async function syncExtensionEntries(): Promise<void> {
   const incoming = await drainExtensionEntries();
   if (!incoming.length) return;
   addEntries(incoming);
-  toast(`Added ${incoming.length} prompt${incoming.length === 1 ? '' : 's'} tracked in Safari.`);
+  const n = incoming.length;
+  const where = incoming.every((e) => e.src === 'inapp') ? 'in the in-app browser'
+    : incoming.every((e) => e.src === 'extension') ? 'in Safari' : 'in Safari and the in-app browser';
+  toast(`Added ${n} prompt${n === 1 ? '' : 's'} tracked ${where}.`);
 }
 
 async function init(): Promise<void> {
@@ -625,6 +650,7 @@ async function init(): Promise<void> {
 
   await syncExtensionEntries();
   onAppResume(() => { void syncExtensionEntries(); refreshAll(); });
+  onInAppBrowserClosed(() => { void syncExtensionEntries(); });
   onAppPause(() => { void flushLog(); });
 
   await initShareTarget((text) => {

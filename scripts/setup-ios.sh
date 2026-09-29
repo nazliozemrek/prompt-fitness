@@ -13,6 +13,7 @@ npx cap sync ios
 
 APP=ios/App/App
 cp native/ios/App/MainViewController.swift native/ios/App/SharedLogPlugin.swift \
+   native/ios/App/InAppBrowserPlugin.swift native/ios/App/InAppBrowserViewController.swift \
    native/ios/App/App.entitlements native/ios/App/PrivacyInfo.xcprivacy "$APP/"
 cp native/ios/Shared/SharedStore.swift "$APP/"
 

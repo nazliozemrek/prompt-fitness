@@ -282,9 +282,31 @@ CO₂e (g) = energy × 370 g per kWh</pre>
 
     <!-- Panel A: extension (web, iOS, macOS) or share target (Android) -->
     <div id="panelA" role="tabpanel" aria-labelledby="tabA" class="mt-5 space-y-4 text-sm leading-relaxed">
+      <div data-platform="ios" class="rounded-2xl border border-mint/25 bg-mint/[.05] p-4">
+        <p class="text-xs font-semibold uppercase tracking-wide text-mint">Easiest</p>
+        <h3 class="mt-1 font-semibold text-white">Chat inside Prompt Fitness</h3>
+        <p class="mt-1 muted">Open your AI here and sign in as usual. Each reply's footprint shows in a panel at the bottom as it finishes. Nothing to install.</p>
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="chatgpt.com"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>ChatGPT</button>
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="claude.ai"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>Claude</button>
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="gemini.google.com"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>Gemini</button>
+        </div>
+        <p class="mt-3 text-xs muted">Measured on this device; only numbers are kept. Google doesn't allow sign-in inside apps, so for Gemini or "Continue with Google" use the Safari extension below.</p>
+      </div>
       <div data-platform="web ios">
-        <h3 class="font-semibold text-white">Automatic tracking in your browser</h3>
+        <h3 class="font-semibold text-white" id="extHeading">Automatic tracking in your browser</h3>
         <ol class="mt-3 space-y-2.5 list-decimal pl-5 marker:text-mint" id="extSteps"></ol>
+        <div data-platform="ios" class="mt-4 space-y-3">
+          <p class="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Settings path: Settings, Apps, Safari, Extensions, Prompt Fitness">
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Settings</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Apps</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Safari</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Extensions</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-mint/15 px-2 py-1 text-mint">Prompt Fitness</span>
+          </p>
+          <button type="button" id="openSafariSettings" class="btn-primary"><i data-lucide="settings-2" class="w-4 h-4"></i>Open Safari extension settings</button>
+          <p id="safariSettingsHint" class="text-xs muted" hidden></p>
+        </div>
         <div class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
           <p class="font-medium text-slate-100">What it never does</p>
           <p class="muted">Store or send your messages, read other websites, or run without a visible indicator. You can pause it per site at any time from its popup.</p>

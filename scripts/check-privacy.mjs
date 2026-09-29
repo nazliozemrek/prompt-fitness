@@ -51,6 +51,7 @@ if (!existsSync(join(dist, 'index.html'))) {
   const html = await readFile(join(dist, 'index.html'), 'utf8');
   if (!/connect-src 'self'/.test(html)) fail('dist/index.html', "CSP must restrict connect-src to 'self'");
   if (/<script(?![^>]*\bsrc=)[^>]*>\s*\S/i.test(html)) fail('dist/index.html', 'inline <script> found (CSP forbids it)');
+  if (/\binapp\.js\b/.test(html)) fail('dist/index.html', 'must not load the in-app browser script');
   const ext = [...html.matchAll(/\b(?:src|href)\s*=\s*["'](https?:)?\/\//gi)];
   if (ext.length) fail('dist/index.html', 'loads an external resource');
   for (const f of (await readdir(dist)).filter((n) => n.endsWith('.css'))) {
@@ -59,7 +60,18 @@ if (!existsSync(join(dist, 'index.html'))) {
   }
 }
 
-/* 3. Capacitor config: bundled assets only. */
+/* 3. In-app browser script (injected by the iOS app into the three chat sites): same rules as the extensions. */
+const inapp = join(dist, 'inapp.js');
+if (!existsSync(inapp)) {
+  fail('dist/inapp.js', 'missing, run `npm run build` first');
+} else {
+  const text = await readFile(inapp, 'utf8');
+  for (const re of NETWORK_APIS) if (re.test(text)) fail('dist/inapp.js', `uses ${re}`);
+  const url = text.match(EXTERNAL_URL);
+  if (url) fail('dist/inapp.js', `references external URL ${url[0]}`);
+}
+
+/* 4. Capacitor config: bundled assets only. */
 const cap = JSON.parse(await readFile(join(root, 'capacitor.config.json'), 'utf8'));
 if (cap.server?.url) fail('capacitor.config.json', 'server.url must not be set for release builds');
 if (cap.plugins?.CapacitorHttp?.enabled) fail('capacitor.config.json', 'CapacitorHttp must stay disabled');

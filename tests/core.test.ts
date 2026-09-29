@@ -77,8 +77,12 @@ describe('sanitizeEntry (privacy boundary)', () => {
   it('accepts the numeric shape', () => {
     expect(sanitizeEntry(ok)).toEqual(ok);
   });
+  it('accepts entries from the in-app browser', () => {
+    expect(sanitizeEntry({ ...ok, src: 'inapp' })).toEqual({ ...ok, src: 'inapp' });
+  });
   it('rejects any extra field, such as prompt text', () => {
     expect(sanitizeEntry({ ...ok, text: 'secret prompt' })).toBeNull();
+    expect(sanitizeEntry({ ...ok, src: 'inapp', text: 'secret prompt' })).toBeNull();
   });
   it('rejects unknown models, negative or fractional counts, bad sources', () => {
     expect(sanitizeEntry({ ...ok, m: 'evil' })).toBeNull();

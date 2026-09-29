@@ -99,7 +99,7 @@ export function estTokens(text: string | null | undefined): number {
 /* Log entries (the ONLY persisted shape: numbers, never text)         */
 /* ------------------------------------------------------------------ */
 
-export type EntrySource = 'playground' | 'extension' | 'usage' | 'share';
+export type EntrySource = 'playground' | 'extension' | 'inapp' | 'usage' | 'share';
 
 export interface LogEntry {
   /** Unix ms */
@@ -117,7 +117,7 @@ export interface LogEntry {
   demo?: 1;
 }
 
-const SOURCES: readonly EntrySource[] = ['playground', 'extension', 'usage', 'share'];
+const SOURCES: readonly EntrySource[] = ['playground', 'extension', 'inapp', 'usage', 'share'];
 
 /** Strict validator: rejects anything that isn't the exact numeric shape (defends every storage boundary). */
 export function sanitizeEntry(raw: unknown): LogEntry | null {

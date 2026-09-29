@@ -35,6 +35,14 @@ async function buildWeb() {
     outfile: join(out, 'app.js'),
     target: ['es2020', 'safari14', 'chrome100'],
   });
+  // Measurement script for the iOS in-app browser. Capacitor copies dist/ into the app bundle (public/inapp.js);
+  // the native WebView injects it into the three chat sites. index.html never loads it.
+  await build({
+    ...common,
+    entryPoints: [join(root, 'extension/src/inapp.ts')],
+    outfile: join(out, 'inapp.js'),
+    target: ['es2020', 'safari15'],
+  });
   await cp(join(root, 'web/index.html'), join(out, 'index.html'));
   await cp(join(root, 'web/favicon.png'), join(out, 'favicon.png'));
   if (!existsSync(join(out, 'styles.css'))) {

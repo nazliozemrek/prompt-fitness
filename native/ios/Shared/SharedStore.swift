@@ -2,8 +2,9 @@
 //  SharedStore.swift
 //  Compiled into BOTH the App target and the Safari Extension target.
 //
-//  A tiny on-device mailbox in the App Group container: the Safari extension appends
-//  numeric usage entries, the app drains them into its own store. Nothing leaves the device.
+//  A tiny on-device mailbox in the App Group container: the Safari extension and the in-app
+//  browser append numeric usage entries, the dashboard drains them into its own store.
+//  Nothing leaves the device.
 //  NSFileCoordinator serializes access across the two processes.
 //
 
@@ -16,6 +17,7 @@ enum SharedStore {
     static let maxTokens = 5_000_000
 
     private static let allowedKeys: Set<String> = ["t", "m", "i", "o", "s", "f", "src"]
+    private static let sources: Set<String> = ["extension", "inapp"]
     private static let modelIds: Set<String> = [
         "gpt4o-mini", "gemini-flash", "haiku", "gpt4o", "sonnet", "gemini-pro", "opus", "o1",
     ]
@@ -34,11 +36,11 @@ enum SharedStore {
               let i = raw["i"] as? NSNumber, (0...maxTokens).contains(i.intValue),
               let o = raw["o"] as? NSNumber, (0...maxTokens).contains(o.intValue),
               let m = raw["m"] as? String, modelIds.contains(m),
-              raw["src"] as? String == "extension"
+              let src = raw["src"] as? String, sources.contains(src)
         else { return nil }
 
         var clean: [String: Any] = [
-            "t": t.int64Value, "m": m, "i": i.intValue, "o": o.intValue, "src": "extension",
+            "t": t.int64Value, "m": m, "i": i.intValue, "o": o.intValue, "src": src,
         ]
         if let s = raw["s"] as? NSNumber, (0...100).contains(s.intValue) {
             clean["s"] = s.intValue

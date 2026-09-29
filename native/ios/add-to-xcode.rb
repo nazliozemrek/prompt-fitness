@@ -24,7 +24,7 @@ end
 app = project.targets.find { |t| t.name == 'App' } or abort('✗ App target not found')
 app_group = project.main_group['App'] or abort('✗ App group not found')
 
-%w[MainViewController.swift SharedLogPlugin.swift SharedStore.swift].each do |name|
+%w[MainViewController.swift SharedLogPlugin.swift InAppBrowserPlugin.swift InAppBrowserViewController.swift SharedStore.swift].each do |name|
   add_source(app, file_ref(app_group, name))
 end
 add_resource(app, file_ref(app_group, 'PrivacyInfo.xcprivacy'))
@@ -32,7 +32,7 @@ file_ref(app_group, 'App.entitlements')
 app.build_configurations.each do |c|
   c.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'App/App.entitlements'
 end
-puts '✓ App target: plugin, shared store, privacy manifest, entitlements'
+puts '✓ App target: plugins, in-app browser, shared store, privacy manifest, entitlements'
 
 ext = project.targets.find { |t| t.name == 'Extension' }
 if ext

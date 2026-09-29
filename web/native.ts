@@ -7,7 +7,7 @@ import { App } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { sanitizeEntry, type LogEntry } from '../shared/core';
 
-/** iOS only: reads entries the Safari extension wrote into the shared App Group. */
+/** iOS only: reads entries the Safari extension and the in-app browser wrote into the shared App Group. */
 interface SharedLogPlugin {
   drain(): Promise<{ entries: unknown[] }>;
 }
@@ -20,7 +20,45 @@ interface ShareIntentPlugin {
 }
 const ShareIntent = registerPlugin<ShareIntentPlugin>('ShareIntent');
 
+/** iOS only: in-app browser for the three chat sites, and the Safari extension settings shortcut. */
+export type InAppSite = 'chatgpt.com' | 'claude.ai' | 'gemini.google.com';
+interface InAppBrowserPlugin {
+  open(options: { site: InAppSite }): Promise<void>;
+  openExtensionSettings(): Promise<{ opened: boolean; target: 'safari' | 'app' | 'none' }>;
+  addListener(event: 'closed', cb: (data: { counted?: number }) => void): Promise<PluginListenerHandle>;
+}
+const InAppBrowser = registerPlugin<InAppBrowserPlugin>('InAppBrowser');
+
 const platform = (): string => Capacitor.getPlatform();
+
+export const hasInAppBrowser = (): boolean => platform() === 'ios';
+
+/** Opens the in-app browser. Resolves false where it isn't available (web, Android, older builds). */
+export async function openInAppBrowser(site: InAppSite): Promise<boolean> {
+  if (!hasInAppBrowser()) return false;
+  try {
+    await InAppBrowser.open({ site });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function onInAppBrowserClosed(cb: () => void): void {
+  if (!hasInAppBrowser()) return;
+  InAppBrowser.addListener('closed', () => cb()).catch(() => { /* plugin not registered in this build */ });
+}
+
+/** Where the settings shortcut landed: Safari's extension list (iOS 26.2+), this app's settings page, or nowhere. */
+export async function openSafariExtensionSettings(): Promise<'safari' | 'app' | 'none'> {
+  if (platform() !== 'ios') return 'none';
+  try {
+    const r = await InAppBrowser.openExtensionSettings();
+    return r.opened ? r.target : 'none';
+  } catch {
+    return 'none';
+  }
+}
 
 export async function drainExtensionEntries(): Promise<LogEntry[]> {
   if (platform() !== 'ios') return [];

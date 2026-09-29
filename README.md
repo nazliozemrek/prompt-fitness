@@ -7,6 +7,7 @@
 ## ✨ Features
 
 - ⚡ **On-page indicator:** a live footprint estimate and prompt-efficiency score (0–100) on ChatGPT, Claude and Gemini.
+- 📱 **In-app browser (iOS):** chat with ChatGPT or Claude inside the app and watch each reply's footprint in a live bottom panel. Nothing to install.
 - 📊 **Dashboard:** usage trends, average score and tips, on the web, iOS, iPadOS, macOS and Android.
 - 🔒 **Privacy-first:** no servers and no network calls. Message text is measured in memory and never stored. Only numbers are kept, in on-device storage.
 - 🧹 **Your data, your call:** clear your tracked history at any time from the popup or the dashboard.
@@ -36,7 +37,7 @@ One TypeScript codebase ships to six places:
 | Target | What it is | Built from |
 |---|---|---|
 | Web dashboard | Static site, no backend | `web/` + `shared/` → `dist/` |
-| iOS / iPadOS app | Capacitor container with the dashboard **and** the Safari Web Extension | `dist/` + `native/ios/` + `build/extension-safari/` |
+| iOS / iPadOS app | Capacitor container with the dashboard, an in-app AI browser **and** the Safari Web Extension | `dist/` + `native/ios/` + `build/extension-safari/` |
 | macOS app | Converter-generated container for the Safari extension | `build/extension-safari/` → `safari-mac/` |
 | Android app | Capacitor app with a "Share to score" target (Android browsers have no extensions) | `dist/` + `native/android/` |
 | Chrome extension | MV3 extension (Chrome, Edge, Brave) | `extension/` + `shared/` → `build/extension-chrome/` |
@@ -49,11 +50,13 @@ shared/core.ts                 Pure logic: models, footprint formula, prompt ana
 web/                           Dashboard (index.html, app.ts, storage.ts, native.ts, input.css)
 extension/
   manifest.json                Base MV3 manifest (merged with manifest.{chrome,firefox,safari}.json)
-  src/content.ts               On-page measurement (text → numbers, never stored)
+  src/tracker.ts               Reply counting shared by the extension and the in-app browser (text → numbers)
+  src/content.ts               Extension content script: settings, on-page indicator, sends numbers to background
+  src/inapp.ts                 In-app browser script (built to dist/inapp.js, injected by the iOS app)
   src/background.ts            Validated storage, badge, Safari → app forwarding
   src/popup.ts, popup.html/css Toolbar popup (Safari iOS shows it as a sheet)
   prototype/                   Earlier vanilla-JS popup with Chart.js (not built or shipped)
-native/ios/                    Swift plugin, App Group store, extension handler, entitlements, privacy manifests
+native/ios/                    Swift plugins, in-app browser, App Group store, extension handler, entitlements, privacy manifests
 native/android/                Hardened manifest, share-target plugin, backup exclusion rules
 scripts/                       build, privacy gate, iOS/Android setup, Safari converter, icon generator
 assets/                        Icon and splash sources for @capacitor/assets
@@ -103,6 +106,21 @@ The App Store icon (`assets/icon-only.png`) has no alpha channel, as Apple requi
 npm run ios:setup
 ```
 This adds the iOS platform, builds and syncs the web app, copies the Swift files, switches `Main.storyboard` to `MainViewController` (which registers the `SharedLog` plugin), sets Info.plist keys, and registers files, the privacy manifest and entitlements with the Xcode project.
+
+### In-app AI browser
+
+"Connect your AI" → **Chat inside Prompt Fitness** opens ChatGPT, Claude or Gemini in a native browser screen (`native/ios/App/InAppBrowserViewController.swift`) with a live footprint panel at the bottom. It's the easiest option, since users don't have to install or enable anything.
+
+How it stays private:
+- It is a separate `WKWebView`, not the Capacitor web view, so the chat sites can't reach any native plugin.
+- `dist/inapp.js` (from `extension/src/inapp.ts`, sharing `tracker.ts` with the extension) is injected at document end in an **isolated `WKContentWorld`**. The page's own scripts can't read it, and only that world can post to the `promptFitness` message handler.
+- The handler accepts messages only from the main frame of the three hosts over https. Each entry is re-validated by `SharedStore.sanitize` (numbers only) and appended to the App Group mailbox; the dashboard drains it when the browser closes.
+- Top-level navigation stays in the app only for the three sites and their sign-in pages; every other link opens in the system browser. "Clear website data" in the ⋯ menu removes cookies and sign-ins.
+- Prompt Fitness adds no requests of its own. The web view talks to the chat site exactly as Safari would.
+
+Limits: Google blocks sign-in inside embedded browsers, so Gemini and "Continue with Google" don't work there; the dashboard points those users to the Safari extension. The browser uses each site's default model (ChatGPT → GPT-4o, Claude → Claude 3.5 Sonnet, Gemini → Gemini 1.5 Pro). Android has no in-app browser, because it would need the INTERNET permission the Android build deliberately removes.
+
+The Safari settings button uses `SFSafariSettings.openExtensionsSettings(forIdentifiers:)` on iOS 26.2+ and falls back to the app's own Settings page with written steps. Private `App-Prefs:` URLs are not used (App Review rejects them).
 
 ### 2. Add the Safari extension target (once, in Xcode)
 1. `npx cap open ios`
@@ -176,10 +194,10 @@ The Firefox build adds `background.scripts` next to `service_worker` (Firefox ru
 ## Privacy verification
 
 `npm run check:privacy` fails the build if:
-- any extension bundle (Chrome, Firefox, Safari) contains `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `eval` or an external URL
+- any extension bundle (Chrome, Firefox, Safari) or the in-app browser script (`dist/inapp.js`) contains `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `eval` or an external URL
 - a manifest requests anything beyond `storage` and `activeTab` (plus `nativeMessaging` on Safari), uses `host_permissions`, or targets sites other than the three chat hosts
 - the extension CSP lacks `connect-src 'none'`
-- the dashboard loads any external resource, contains inline scripts, or lacks `connect-src 'self'`
+- the dashboard loads any external resource (or `inapp.js`), contains inline scripts, or lacks `connect-src 'self'`
 - `capacitor.config.json` sets `server.url`, enables CapacitorHttp, or enables web debugging
 
 `activeTab` shows no install warning and grants nothing until the user clicks the toolbar button; the popup uses it only to read the current tab's address for per-site settings.
@@ -193,7 +211,7 @@ A reply is counted **once**, and only if it was seen growing in the tab (streame
 The model can't be read reliably from these pages, so each site uses a default (ChatGPT → GPT-4o, Claude → Claude 3.5 Sonnet, Gemini → Gemini 1.5 Pro) that the user can change per site in the popup.
 
 ### Maintaining selectors
-The three sites change their markup. Selectors live in one place, `ADAPTERS` in `extension/src/content.ts`, each as an ordered fallback list. When a site changes:
+The three sites change their markup. Selectors live in one place, `ADAPTERS` in `extension/src/tracker.ts` (used by both the extension and the in-app browser), each as an ordered fallback list. When a site changes:
 1. Open the site, inspect a user message and a reply, and add the new selectors to the front of the list.
 2. Check the "stop generating" control's selector in `isStreaming`.
 3. Ship an update. Undercounting is the failure mode (nothing is counted), never overcounting.
@@ -216,6 +234,7 @@ All constants are in `shared/core.ts` under `C` and `MODELS`, versioned by `COEF
 - [ ] `npm run release:check` passes
 - [ ] Version bumped in `package.json` (extensions read it at build time) and in Xcode / `android/app/build.gradle`
 - [ ] Icons regenerated with `npm run assets`
+- [ ] iOS: in-app browser tested on ChatGPT and Claude (sign in, one reply appears in the bottom panel and in Recent activity after Done)
 - [ ] iOS: App and Extension both signed, App Group `group.com.promptfitness.app` enabled on both, extension tested on a device on all three sites
 - [ ] iOS: Privacy manifests present in both targets (Xcode → Product → Archive → Generate Privacy Report shows no collected data)
 - [ ] Android: release build has no INTERNET permission; share target works from another app
@@ -229,4 +248,5 @@ All constants are in `shared/core.ts` under `C` and `MODELS`, versioned by `COEF
 - Footprint numbers are estimates; the app says so in the UI and the store listings.
 - Token counts are approximations (about 4 characters per token for English); real tokenizers differ, especially for code and non-Latin scripts.
 - Chat-site markup changes can pause automatic counting until selectors are updated.
+- In the iOS in-app browser, Google sign-in is unavailable (Google blocks embedded browsers) and sites may show extra bot checks.
 - Capacitor's native bridge is injected by the native layer, so the dashboard's strict CSP (`script-src 'self'`) is compatible. If you add a plugin that injects inline scripts, test on a device before relaxing the CSP.

@@ -1,0 +1,43 @@
+{
+  "appId": "com.yourcompany.promptfitness",
+  "appName": "Prompt Fitness",
+  "webDir": "dist",
+  "loggingBehavior": "none",
+  "backgroundColor": "#060a10",
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "backgroundColor": "#060a10",
+    "limitsNavigationsToAppBoundDomains": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "android": {
+    "backgroundColor": "#060a10",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false },
+    "CapacitorCookies": { "enabled": false },
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "launchAutoHide": true,
+      "backgroundColor": "#060a10",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": false,
+      "splashImmersive": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#060a10",
+      "overlaysWebView": false
+    },
+    "Keyboard": {
+      "resize": "body",
+      "style": "DARK",
+      "resizeOnFullScreen": true
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "name": "prompt-fitness",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prompt Fitness: on-device AI water and carbon footprint tracker (web dashboard, Capacitor apps, Chrome and Safari extensions).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:css && node scripts/build.mjs",
+    "build:css": "tailwindcss -i web/input.css -o dist/styles.css --minify",
+    "build:web": "npm run build:css && node scripts/build.mjs --target=web",
+    "build:ext": "node scripts/build.mjs --target=extension",
+    "dev": "npm run build && npx serve dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:privacy": "node scripts/check-privacy.mjs",
+    "assets": "capacitor-assets generate --iconBackgroundColor '#060a10' --iconBackgroundColorDark '#060a10' --splashBackgroundColor '#060a10' --splashBackgroundColorDark '#060a10'",
+    "cap:sync": "npm run build && npm run check:privacy && cap sync",
+    "ios:setup": "bash scripts/setup-ios.sh",
+    "android:setup": "bash scripts/setup-android.sh",
+    "apple:convert": "bash scripts/build-apple.sh",
+    "release:check": "npm run typecheck && npm test && npm run build && npm run check:privacy",
+    "zip:chrome": "npm run build:ext && cd build/extension-chrome && zip -qr ../prompt-fitness-chrome.zip . && echo '\u2713 build/prompt-fitness-chrome.zip'",
+    "icons": "python3 scripts/generate-icons.py"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/keyboard": "^7.0.0",
+    "@capacitor/preferences": "^7.0.0",
+    "@capacitor/splash-screen": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0",
+    "chart.js": "^4.4.1",
+    "lucide": "^0.460.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0",
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

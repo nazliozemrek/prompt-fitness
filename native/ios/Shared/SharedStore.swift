@@ -11,7 +11,7 @@ import Foundation
 
 enum SharedStore {
     /// Must match the App Group capability on both targets.
-    static let appGroup = "group.com.yourcompany.promptfitness"
+    static let appGroup = "group.com.promptfitness.app"
     static let maxEntries = 3000
     static let maxTokens = 5_000_000
 

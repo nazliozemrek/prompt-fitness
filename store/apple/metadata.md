@@ -9,8 +9,8 @@ Paste each field into App Store Connect. Character limits are Apple's.
 | Subtitle | Smarter prompts, lighter impact | 30 |
 | Primary category | Productivity | |
 | Secondary category | Utilities | |
-| Bundle ID (app) | com.yourcompany.promptfitness | |
-| Bundle ID (Safari extension) | com.yourcompany.promptfitness.Extension | |
+| Bundle ID (app) | com.promptfitness.app | |
+| Bundle ID (Safari extension) | com.promptfitness.app.Extension | |
 | SKU | promptfitness-ios-001 | |
 | Copyright | 2026 Your Company Name | |
 | Support URL | https://yourdomain.example/promptfitness/support | |

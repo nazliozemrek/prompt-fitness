@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 [[ "$(uname)" == "Darwin" ]] || { echo "✗ Run this on macOS with Xcode installed."; exit 1; }
 
-BUNDLE_ID="${BUNDLE_ID:-com.yourcompany.promptfitness}"
+BUNDLE_ID="${BUNDLE_ID:-com.promptfitness.app}"
 APP_NAME="${APP_NAME:-Prompt Fitness}"
 
 npm run build:ext

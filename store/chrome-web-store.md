@@ -19,6 +19,7 @@ Upload `build/prompt-fitness-chrome.zip` (see README, "Chrome Web Store").
 | Permission | Justification |
 |---|---|
 | `storage` | Saves numeric usage records (time, model id, token counts, score) and settings on the user's device. |
+| `activeTab` | When the user opens the popup, reads the current tab's address to show that site's tracking and model settings. Grants no access until the user clicks the toolbar button. |
 | Content script on chatgpt.com, claude.ai, gemini.google.com | Measures the length of messages on these three AI chat sites to estimate their footprint. No other sites are accessed. |
 
 **Remote code:** No, I am not using remote code. All JavaScript is included in the package.

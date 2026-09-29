@@ -2,7 +2,7 @@
   "name": "prompt-fitness",
   "version": "1.0.0",
   "private": true,
-  "description": "Prompt Fitness: on-device AI water and carbon footprint tracker (web dashboard, Capacitor apps, Chrome and Safari extensions).",
+  "description": "Prompt Fitness: on-device AI water and carbon footprint tracker (web dashboard, Capacitor apps, Chrome, Firefox and Safari extensions).",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -23,6 +23,7 @@
     "apple:convert": "bash scripts/build-apple.sh",
     "release:check": "npm run typecheck && npm test && npm run build && npm run check:privacy",
     "zip:chrome": "npm run build:ext && cd build/extension-chrome && zip -qr ../prompt-fitness-chrome.zip . && echo '✓ build/prompt-fitness-chrome.zip'",
+    "zip:firefox": "npm run build:ext && cd build/extension-firefox && zip -qr ../prompt-fitness-firefox.zip . && echo '✓ build/prompt-fitness-firefox.zip'",
     "icons": "python3 scripts/generate-icons.py"
   },
   "dependencies": {

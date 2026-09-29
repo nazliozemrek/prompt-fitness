@@ -1,5 +1,5 @@
 {
-  "appId": "com.yourcompany.promptfitness",
+  "appId": "com.promptfitness.app",
   "appName": "Prompt Fitness",
   "webDir": "dist",
   "loggingBehavior": "none",

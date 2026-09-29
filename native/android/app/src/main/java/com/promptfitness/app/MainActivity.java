@@ -1,4 +1,4 @@
-package com.yourcompany.promptfitness;
+package com.promptfitness.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

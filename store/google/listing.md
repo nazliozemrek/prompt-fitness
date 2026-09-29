@@ -8,7 +8,7 @@
 | Tags | Productivity, Tools | |
 | Contact email | support@yourdomain.example | |
 | Privacy policy | https://yourdomain.example/promptfitness/privacy | |
-| Package name | com.yourcompany.promptfitness | |
+| Package name | com.promptfitness.app | |
 
 ## Full description (4000)
 ```

@@ -46,4 +46,4 @@ ruby native/ios/add-to-xcode.rb ios/App/App.xcodeproj
 
 echo
 echo "Next: open ios/App/App.xcworkspace, set your Team on both targets, and confirm the App Group"
-echo "      group.com.yourcompany.promptfitness is enabled under Signing & Capabilities."
+echo "      group.com.promptfitness.app is enabled under Signing & Capabilities."

@@ -10,7 +10,7 @@ npx cap sync android
 
 SRC=native/android/app/src/main
 DST=android/app/src/main
-PKG_DIR=java/com/yourcompany/promptfitness
+PKG_DIR=java/com/promptfitness/app
 
 cp "$SRC/AndroidManifest.xml" "$DST/AndroidManifest.xml"
 mkdir -p "$DST/$PKG_DIR" "$DST/res/xml"

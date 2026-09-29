@@ -1,122 +1,72 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prompt Fitness</title>
-  <script src="chart.js"></script>
-  <style>
-    body {
-      width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 16px;
-      margin: 0;
-      background-color: #0f172a;
-      color: #f8fafc;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    h2 {
-      font-size: 16px;
-      margin: 0;
-      color: #38bdf8;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .stat-card {
-      background: #1e293b;
-      border-radius: 10px;
-      padding: 12px;
-      border: 1px solid #334155;
-    }
-    .stat-label {
-      font-size: 10px;
-      color: #94a3b8;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-    .stat-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: #f8fafc;
-      margin-top: 4px;
-    }
-    .chart-container {
-      background: #1e293b;
-      border-radius: 10px;
-      padding: 12px;
-      border: 1px solid #334155;
-      margin-bottom: 16px;
-    }
-    .btn-group {
-      display: flex;
-      gap: 8px;
-    }
-    button {
-      flex: 1;
-      padding: 8px;
-      border-radius: 6px;
-      border: none;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
-    }
-    .btn-export {
-      background: #0284c7;
-      color: white;
-    }
-    .btn-reset {
-      background: #334155;
-      color: #94a3b8;
-    }
-    button:hover {
-      opacity: 0.85;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Prompt Fitness</title>
+<link rel="stylesheet" href="popup.css">
+<script src="popup.js" defer></script>
 </head>
 <body>
-  <div class="header">
-    <h2>Prompt Fitness</h2>
-    <span style="font-size: 11px; color: #22c55e; font-weight: 600;">● Live On-Device</span>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">Toplam Prompt</div>
-      <div class="stat-value" id="total-prompts">0</div>
+  <header class="head">
+    <img src="icons/icon-48.png" width="28" height="28" alt="">
+    <div>
+      <h1>Prompt Fitness</h1>
+      <p class="sub">Today, on this device</p>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Ort. Fitness</div>
-      <div class="stat-value" id="avg-grade" style="color: #22c55e;">A</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Tahmini Su</div>
-      <div class="stat-value" id="total-water">0 ml</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Tahmini Enerji</div>
-      <div class="stat-value" id="total-energy">0 Wh</div>
-    </div>
-  </div>
+  </header>
 
-  <div class="chart-container">
-    <canvas id="usageChart" height="140"></canvas>
-  </div>
+  <section class="hero" aria-live="polite">
+    <p class="big"><span id="water">0</span> <span id="waterUnit" class="unit">mL</span></p>
+    <div class="bar" role="progressbar" aria-label="Daily water budget used" aria-valuemin="0" aria-valuemax="100" id="bar"><span id="barFill"></span></div>
+    <p class="meta"><span id="budgetText">of 1.0 L daily budget</span></p>
+    <dl class="stats">
+      <div><dt>Prompts</dt><dd id="count">0</dd></div>
+      <div><dt>Avg score</dt><dd id="avg">–</dd></div>
+      <div><dt>Eco-Fitness</dt><dd id="fitness">–</dd></div>
+    </dl>
+  </section>
 
-  <div class="btn-group">
-    <button class="btn-export" id="btn-export">Verileri İndir (JSON)</button>
-    <button class="btn-reset" id="btn-reset">Sıfırla</button>
-  </div>
+  <section class="card" id="lastCard" hidden>
+    <p class="label">Last reply</p>
+    <p id="lastText" class="value"></p>
+  </section>
 
-  <script src="popup.js"></script>
+  <section class="card" id="siteCard">
+    <p class="label" id="siteLabel">This site</p>
+    <div id="siteControls" hidden>
+      <label class="row" for="pauseToggle">
+        <span>Track on <b id="siteHost"></b></span>
+        <input type="checkbox" id="pauseToggle" role="switch" checked>
+      </label>
+      <label class="row" for="siteModel">
+        <span>Model used here</span>
+        <select id="siteModel"></select>
+      </label>
+    </div>
+    <p id="siteHint" class="hint">Open ChatGPT, Claude or Gemini to change settings for that site.</p>
+  </section>
+
+  <section class="card">
+    <label class="row" for="pillToggle">
+      <span>Show on-page indicator</span>
+      <input type="checkbox" id="pillToggle" role="switch" checked>
+    </label>
+    <label class="row" for="budget">
+      <span>Daily water budget</span>
+      <select id="budget">
+        <option value="0.5">0.5 L</option>
+        <option value="1">1 L</option>
+        <option value="2">2 L</option>
+        <option value="3">3 L</option>
+      </select>
+    </label>
+  </section>
+
+  <footer class="foot">
+    <p class="hint" id="appHint">Estimates only. Message text is never stored or sent; only numbers are kept.</p>
+    <button type="button" id="clearBtn" class="danger">Clear tracked data</button>
+  </footer>
 </body>
 </html>

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Build script.
- *   node scripts/build.mjs                  → web dashboard (dist/) + both extensions (build/)
+ *   node scripts/build.mjs                  → web dashboard (dist/) + all extensions (build/)
  *   node scripts/build.mjs --target=web     → dist/ only (run `npm run build:css` first)
  *   node scripts/build.mjs --target=extension
  */
@@ -57,7 +57,7 @@ async function buildExtension(flavor) {
   const out = join(root, 'build', `extension-${flavor}`);
   await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
-  const targets = flavor === 'safari' ? ['es2020', 'safari16'] : ['es2020', 'chrome116'];
+  const targets = { chrome: ['es2020', 'chrome116'], safari: ['es2020', 'safari16'], firefox: ['es2020', 'firefox121'] }[flavor];
   await build({
     ...common,
     entryPoints: {
@@ -84,4 +84,5 @@ if (target === 'all' || target === 'web') await buildWeb();
 if (target === 'all' || target === 'extension') {
   await buildExtension('chrome');
   await buildExtension('safari');
+  await buildExtension('firefox');
 }

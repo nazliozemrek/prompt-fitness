@@ -20,7 +20,7 @@ const EXTERNAL_URL = /https?:\/\/(?!www\.w3\.org\/)[a-z0-9.-]+\.[a-z]{2,}/i;
 const ALLOWED_EXT_URLS = /https:\/\/(chatgpt\.com|claude\.ai|gemini\.google\.com)\//;
 
 /* 1. Extensions: zero network APIs, zero external URLs except the three match patterns in the manifest. */
-for (const flavor of ['chrome', 'safari']) {
+for (const flavor of ['chrome', 'safari', 'firefox']) {
   const dir = join(root, 'build', `extension-${flavor}`);
   if (!existsSync(dir)) { fail(dir, 'missing, run `npm run build` first'); continue; }
   for (const f of ['background.js', 'content.js', 'popup.js', 'popup.html', 'popup.css']) {
@@ -31,7 +31,8 @@ for (const flavor of ['chrome', 'safari']) {
   }
   const manifest = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'));
   const perms = new Set(manifest.permissions ?? []);
-  const allowedPerms = flavor === 'safari' ? ['storage', 'nativeMessaging'] : ['storage'];
+  // activeTab grants no install-time access; it only lets the popup read the current tab's URL after a click.
+  const allowedPerms = flavor === 'safari' ? ['storage', 'activeTab', 'nativeMessaging'] : ['storage', 'activeTab'];
   for (const p of perms) if (!allowedPerms.includes(p)) fail(`${flavor}/manifest.json`, `unexpected permission "${p}"`);
   if (manifest.host_permissions?.length) fail(`${flavor}/manifest.json`, 'host_permissions must stay empty (content_scripts matches only)');
   for (const cs of manifest.content_scripts ?? []) {

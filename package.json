@@ -22,13 +22,13 @@
     "android:setup": "bash scripts/setup-android.sh",
     "apple:convert": "bash scripts/build-apple.sh",
     "release:check": "npm run typecheck && npm test && npm run build && npm run check:privacy",
-    "zip:chrome": "npm run build:ext && cd build/extension-chrome && zip -qr ../prompt-fitness-chrome.zip . && echo '\u2713 build/prompt-fitness-chrome.zip'",
+    "zip:chrome": "npm run build:ext && cd build/extension-chrome && zip -qr ../prompt-fitness-chrome.zip . && echo '✓ build/prompt-fitness-chrome.zip'",
     "icons": "python3 scripts/generate-icons.py"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.0.0",
-    "@capacitor/core": "^7.0.0",
+    "@capacitor/core": "^7.6.9",
     "@capacitor/haptics": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
     "@capacitor/keyboard": "^7.0.0",
@@ -40,11 +40,18 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^7.0.0",
+    "@capacitor/cli": "^7.6.9",
     "@types/chrome": "^0.0.287",
     "esbuild": "^0.24.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
-  }
+  },
+  "main": "tailwind.config.js",
+  "directories": {
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

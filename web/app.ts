@@ -330,7 +330,6 @@ function renderToday(): void {
   $('#firstRun').hidden = !empty;
   $('#progressEmpty').hidden = !empty;
   $('#progressWrap').hidden = empty;
-  $('#methCard').classList.toggle('lg:col-span-12', empty);
   animateValue('budgetUsed', sum.waterL, (v) => { $('#budgetUsed').textContent = fmtN(v, 2); });
   $('#budgetMax').textContent = fmtN(S.budget, 1);
   const fill = $('#budgetFill');

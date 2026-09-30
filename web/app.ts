@@ -10,14 +10,14 @@ import {
 } from 'lucide';
 import {
   C, CLASS_META, MODELS, analyze, buildTips, compute, dayStart, ecoFitness, fmtAuto, fmtMl, fmtN, fmtWater,
-  getModel, guessModel, isModelId, parseUsageJson, pruneLog, summarize,
+  explainScores, getModel, guessModel, isModelId, parseUsageJson, pruneLog, suggestRewrite, summarize,
   type Analysis, type EntrySource, type LengthPref, type LogEntry, type Model, type ModelId,
 } from '../shared/core';
 import {
   BUDGET_OPTIONS, eraseAllLocalData, flushLog, loadBudget, loadLog, saveBudget, saveLog,
 } from './storage';
 import {
-  currentPlatform, drainExtensionEntries, initShareTarget, onAppPause, onAppResume, onInAppBrowserClosed,
+  currentPlatform, drainExtensionEntries, initShareTarget, onAppPause, onAppResume, onInAppBrowserClosed, onInAppEntry,
   openInAppBrowser, openSafariExtensionSettings, tapFeedback, type InAppSite,
 } from './native';
 
@@ -105,15 +105,41 @@ const SUBS: ReadonlyArray<[keyof Analysis['sub'], string]> = [
 function renderSubScores(a: Analysis | null): void {
   const box = $('#subScores');
   box.replaceChildren();
+  const notes = a ? explainScores(a) : null;
   for (const [k, label] of SUBS) {
     const v = a ? a.sub[k] : 0;
     const wrap = document.createElement('div');
     wrap.innerHTML = `<div class="flex justify-between"><span class="muted">${label}</span><span class="font-mono text-slate-200">${a ? v : '–'}</span></div>
-      <div class="subbar mt-1.5"><span></span></div>`;
+      <div class="subbar mt-1.5"><span></span></div><p class="mt-1.5 leading-snug"></p>`;
     const bar = wrap.querySelector<HTMLSpanElement>('.subbar > span');
     if (bar) { bar.style.width = `${v}%`; bar.style.background = scoreColor(v); }
+    const note = notes?.[k];
+    const p = wrap.querySelector('p');
+    if (p && note) {
+      p.textContent = `${note.ok ? '✓' : '→'} ${note.text}`;
+      p.className += note.ok ? ' muted' : ' text-slate-200';
+    }
     box.appendChild(wrap);
   }
+}
+
+/** The suggested rewrite is kept only in this card (DOM), never stored. */
+let rewriteText = '';
+
+function renderRewrite(a: Analysis | null, model: Model): void {
+  const card = $('#rewriteCard');
+  const r = a ? suggestRewrite($<HTMLTextAreaElement>('#prompt').value, a, S.pref) : null;
+  const b = r ? analyze(r.text, model, S.pref, S.history) : null;
+  if (!a || !r || !b || b.score < a.score) { card.hidden = true; rewriteText = ''; return; }
+  rewriteText = r.text;
+  const before = compute(model, a.inputTok, a.outputTok).waterL * 1000;
+  const after = compute(model, b.inputTok, b.outputTok).waterL * 1000;
+  const less = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+  $('#rewriteImpact').textContent = `Score ${a.score} → ${b.score} · ${fmtMl(before)} mL → ${fmtMl(after)} mL per prompt`
+    + (less > 0 ? ` (${less}% less water)` : '');
+  $('#rewriteText').textContent = r.text;
+  $('#rewriteChanges').replaceChildren(...r.changes.map((c) => { const li = document.createElement('li'); li.textContent = c; return li; }));
+  card.hidden = false;
 }
 
 function renderTips(a: Analysis | null, model: Model): void {
@@ -161,6 +187,7 @@ function renderLive(): void {
     $('#badgeWater').textContent = '0 mL';
     $('#badgeScore').textContent = '–';
     renderSubScores(null);
+    renderRewrite(null, model);
     renderTips(null, model);
     updateModelChart();
     return;
@@ -188,6 +215,7 @@ function renderLive(): void {
   $('#badgeWater').textContent = `${fmtMl(ml)} mL`;
   $('#badgeScore').textContent = `${a.score}%`;
   renderSubScores(a);
+  renderRewrite(a, model);
   renderTips(a, model);
   updateModelChart();
 }
@@ -200,6 +228,9 @@ function renderToday(): void {
   const pct = (sum.waterL / S.budget) * 100;
 
   $('#todayCount').textContent = `${sum.count} prompt${sum.count === 1 ? '' : 's'}`;
+  const head = $('#headerToday');
+  head.hidden = sum.count === 0;
+  head.textContent = `Today: ${sum.count} prompt${sum.count === 1 ? '' : 's'} · ${fmtWater(sum.waterL)} of water →`;
   animateValue('budgetUsed', sum.waterL, (v) => { $('#budgetUsed').textContent = fmtN(v, 2); });
   $('#budgetMax').textContent = fmtN(S.budget, 1);
   const fill = $('#budgetFill');
@@ -394,6 +425,14 @@ function setView(v: State['view']): void {
 
 function refreshAll(): void { renderToday(); renderLog(); updateWeekChart(); }
 
+/** Scrolls to the Today card and briefly highlights it. */
+function showToday(): void {
+  const card = $('#todayCard');
+  card.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  card.classList.add('ring-2', 'ring-mint/60');
+  window.setTimeout(() => card.classList.remove('ring-2', 'ring-mint/60'), 1600);
+}
+
 function addEntries(entries: LogEntry[]): void {
   if (!entries.length) return;
   S.log = pruneLog([...S.log, ...entries]);
@@ -555,6 +594,14 @@ function wire(): void {
   });
   $('#sendBtn').addEventListener('click', () => { window.clearTimeout(t); renderLive(); logCurrentPrompt(); });
   $('#newChatBtn').addEventListener('click', () => { S.history = 0; renderLive(); toast('New chat started. History no longer counts toward input.'); });
+  $('#useRewrite').addEventListener('click', () => {
+    if (!rewriteText) return;
+    ta.value = rewriteText;
+    renderLive();
+    ta.focus();
+    toast('Rewrite applied. Edit it if anything is missing.');
+  });
+  $('#headerToday').addEventListener('click', () => showToday());
   $('#sampleBtn').addEventListener('click', () => { ta.value = SAMPLES[S.sample % SAMPLES.length] ?? ''; S.sample++; renderLive(); });
   $$('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode === 'extension' ? 'extension' : 'playground')));
   $$('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view === 'models' ? 'models' : 'week')));
@@ -654,7 +701,15 @@ async function init(): Promise<void> {
 
   await syncExtensionEntries();
   onAppResume(() => { void syncExtensionEntries(); refreshAll(); });
-  onInAppBrowserClosed(() => { void syncExtensionEntries(); });
+  // In-app browser: entries arrive one by one while it's open, and are saved right away.
+  onInAppEntry((e) => addEntries([e]));
+  onInAppBrowserClosed((counted) => {
+    void syncExtensionEntries();
+    if (counted > 0) {
+      toast(`Added ${counted} prompt${counted === 1 ? '' : 's'} from the in-app browser.`);
+      showToday();
+    }
+  });
   onAppPause(() => { void flushLog(); });
 
   await initShareTarget((text) => {

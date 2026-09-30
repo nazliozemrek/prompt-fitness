@@ -26,6 +26,7 @@ interface InAppBrowserPlugin {
   open(options: { site: InAppSite }): Promise<void>;
   openExtensionSettings(): Promise<{ opened: boolean; target: 'safari' | 'app' | 'none' }>;
   addListener(event: 'closed', cb: (data: { counted?: number }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'entry', cb: (data: { entry?: unknown }) => void): Promise<PluginListenerHandle>;
 }
 const InAppBrowser = registerPlugin<InAppBrowserPlugin>('InAppBrowser');
 
@@ -44,9 +45,19 @@ export async function openInAppBrowser(site: InAppSite): Promise<boolean> {
   }
 }
 
-export function onInAppBrowserClosed(cb: () => void): void {
+export function onInAppBrowserClosed(cb: (counted: number) => void): void {
   if (!hasInAppBrowser()) return;
-  InAppBrowser.addListener('closed', () => cb()).catch(() => { /* plugin not registered in this build */ });
+  InAppBrowser.addListener('closed', (d) => cb(Number.isInteger(d.counted) ? (d.counted as number) : 0))
+    .catch(() => { /* plugin not registered in this build */ });
+}
+
+/** Each reply counted in the in-app browser, validated again here before it reaches the log. */
+export function onInAppEntry(cb: (entry: LogEntry) => void): void {
+  if (!hasInAppBrowser()) return;
+  InAppBrowser.addListener('entry', (d) => {
+    const e = sanitizeEntry(d.entry);
+    if (e && e.src === 'inapp') cb(e);
+  }).catch(() => { /* plugin not registered in this build */ });
 }
 
 /** Where the settings shortcut landed: Safari's extension list (iOS 26.2+), this app's settings page, or nowhere. */

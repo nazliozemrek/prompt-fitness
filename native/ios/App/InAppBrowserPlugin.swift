@@ -18,7 +18,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "openExtensionSettings", returnType: CAPPluginReturnPromise),
     ]
 
-    /// Opens the browser on one of the three chat sites. Emits "closed" with { counted } when dismissed.
+    /// Opens the browser on one of the three chat sites. Emits "entry" with { entry } for each counted
+    /// reply (numbers only) and "closed" with { counted } when dismissed.
     @objc func open(_ call: CAPPluginCall) {
         guard let site = InAppBrowserViewController.Site(rawValue: call.getString("site") ?? "") else {
             call.reject("Unknown site")
@@ -30,6 +31,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             let browser = InAppBrowserViewController(site: site)
+            browser.onEntry = { [weak self] entry in
+                self?.notifyListeners("entry", data: ["entry": entry])
+            }
             browser.onClose = { [weak self] counted in
                 self?.notifyListeners("closed", data: ["counted": counted])
             }

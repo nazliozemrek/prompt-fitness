@@ -10,7 +10,8 @@ receives nothing from those sites except the numbers below.)
 | Data | Where it lives | Leaves the device? |
 |---|---|---|
 | Usage numbers (time, model id, token counts, score) | App: UserDefaults via @capacitor/preferences. Extension: browser.storage.local | No |
-| Numbers passed from the Safari extension or the in-app browser to the dashboard | App Group container file on the device | No |
+| Numbers passed from the Safari extension to the app | App Group container file on the device | No |
+| Numbers from the in-app browser | Passed in memory to the dashboard, then stored with the other usage numbers | No |
 | Cookies and sign-ins for the three AI sites (in-app browser) | WebKit's default website data store on the device; "Clear website data" removes them | Only to that site, as in Safari |
 | Prompt or reply text | Read transiently in memory to compute numbers, never stored | No |
 | Daily budget setting | UserDefaults / browser.storage.local | No |

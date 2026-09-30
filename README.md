@@ -114,7 +114,7 @@ This adds the iOS platform, builds and syncs the web app, copies the Swift files
 How it stays private:
 - It is a separate `WKWebView`, not the Capacitor web view, so the chat sites can't reach any native plugin.
 - `dist/inapp.js` (from `extension/src/inapp.ts`, sharing `tracker.ts` with the extension) is injected at document end in an **isolated `WKContentWorld`**. The page's own scripts can't read it, and only that world can post to the `promptFitness` message handler.
-- The handler accepts messages only from the main frame of the three hosts over https. Each entry is re-validated by `SharedStore.sanitize` (numbers only) and appended to the App Group mailbox; the dashboard drains it when the browser closes.
+- The handler accepts messages only from the main frame of the three hosts over https. Each entry is re-validated by `SharedStore.sanitize` (numbers only) and passed straight to the dashboard through the plugin's `entry` event, where `sanitizeEntry` checks it once more before it's saved. No App Group is involved, so it works on any build.
 - Top-level navigation stays in the app only for the three sites and their sign-in pages; every other link opens in the system browser. "Clear website data" in the ⋯ menu removes cookies and sign-ins.
 - Prompt Fitness adds no requests of its own. The web view talks to the chat site exactly as Safari would.
 
@@ -215,6 +215,13 @@ The three sites change their markup. Selectors live in one place, `ADAPTERS` in 
 1. Open the site, inspect a user message and a reply, and add the new selectors to the front of the list.
 2. Check the "stop generating" control's selector in `isStreaming`.
 3. Ship an update. Undercounting is the failure mode (nothing is counted), never overcounting.
+
+## Prompt coaching
+
+The playground doesn't stop at a score:
+- **A note under each sub-score** (`explainScores` in `shared/core.ts`) names the specific problem in this prompt, for example the filler phrases it found or the missing length.
+- **Try this version** (`suggestRewrite`) proposes a leaner prompt: it removes filler, merges repeated requests, drops sentences that ask nothing, and adds a reply length when none is set. Code blocks are never changed. It shows the score and water before and after, lists what changed and why, and "Use this version" puts it in the editor. It's rule-based, runs on the device, and the suggestion is never stored.
+- **Optimization tips** (`buildTips`) rank the biggest savings: model choice, reply length, filler, repetition, chat history.
 
 ## Methodology
 

@@ -15,7 +15,7 @@ Prompt Fitness does not collect, transmit, sell or share any personal data. Ever
 We do not collect names, email addresses, identifiers, location, contacts, browsing history, or the content of your conversations. The app and extensions contain no analytics, advertising, crash-reporting or tracking software, and they never send data to us or anyone else. The built-in browser on iPhone and iPad connects directly to the AI service you open (ChatGPT, Claude or Gemini), exactly as Safari would; what you do there is covered by that service's own privacy policy. You can remove its cookies and sign-ins at any time with “Clear website data” in the browser menu.
 
 ## Sharing between the extension and the app (iOS)
-On iPhone and iPad, the Safari extension and the built-in browser pass usage numbers to the Prompt Fitness dashboard through a private storage area on your device (an App Group). This data never leaves the device.
+On iPhone and iPad, the Safari extension passes usage numbers to the Prompt Fitness app through a private storage area on your device (an App Group), and the built-in browser passes them to the dashboard directly in memory. This data never leaves the device.
 
 ## Backups
 On Android, app data is excluded from cloud backup and device transfer. On Apple devices, app data may be included in your own encrypted iCloud or computer backups, which are controlled by your Apple account, not by us.

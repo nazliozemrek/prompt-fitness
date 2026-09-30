@@ -219,6 +219,8 @@ const FILLER_PHRASES = [
 const FILLER_SOURCE = '\\b(?:' + FILLER_PHRASES.join('|') + ')\\b';
 const TASK_RE = /\b(write|explain|summari[sz]e|list|fix|compare|translate|generate|create|analy[sz]e|refactor|debug|draft|rewrite|review|describe|outline|suggest|recommend|plan|design|convert|calculate|find|give|show|help|build|make)\b/i;
 const COMPLEX_RE = /\b(analy[sz]e|architecture|design an?|debug|refactor|prove|proof|optimi[sz]e|step[- ]by[- ]step|trade-?offs?|in[- ]depth|research|strategy|migrat(e|ion))\b/i;
+/** A direct question (ends with "?" and has a question word) is as clear a task as an imperative. */
+const QUESTION_RE = /\b(what|why|how|who|when|where|which|is|are|does|do|can|should)\b[^\n]*\?\s*$/i;
 const ROLE_RE = /\b(you are an?|act as|pretend to be|your role is|always respond|respond only|from now on)\b/i;
 const NUM_WORDS: Readonly<Record<string, number>> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const toNum = (s: string | undefined): number => (s ? NUM_WORDS[s] ?? (parseInt(s, 10) || 0) : 0);
@@ -334,7 +336,7 @@ export function analyze(text: string, model: Model, pref: LengthPref = 'auto', h
   const sub: SubScores = {
     conciseness: Math.round(clamp(100 - fillerShare * 400)),
     focus: Math.round(clamp(100 - rep.ratio * 250 - rep.dups * 20)),
-    clarity: wc < 3 ? (hasCode ? 50 : 20) : wc < 6 ? 55 : TASK_RE.test(prose) || wc >= 12 ? 100 : 75,
+    clarity: wc < 3 ? (hasCode ? 50 : 20) : wc < 6 ? 55 : TASK_RE.test(prose) || QUESTION_RE.test(prose) || wc >= 12 ? 100 : 75,
     control: out.hasLengthCtl && out.hasFormatCtl ? 100 : out.hasLengthCtl || out.hasFormatCtl ? 85 : 45,
   };
   const ctxPenalty = history > 8000 ? 10 : history > 3000 ? 5 : 0;
@@ -409,6 +411,122 @@ export function buildTips(a: Analysis, model: Model, pref: LengthPref = 'auto'):
     tips.push({ icon: 'sparkles', title: 'Lean and clear', good: true, body: 'Clear task, controlled reply, no filler, right-sized model. This is what an efficient prompt looks like.' });
   }
   return tips.sort((x, y) => (y.save ?? 0) - (x.save ?? 0)).slice(0, 3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Coaching: what each sub-score means for this prompt, and a rewrite  */
+/* ------------------------------------------------------------------ */
+
+export interface ScoreNote { ok: boolean; text: string; }
+
+/** One actionable sentence per sub-score, specific to the analyzed prompt. */
+export function explainScores(a: Analysis): Record<keyof SubScores, ScoreNote> {
+  const quoted = a.fillerFound.slice(0, 3).map((p) => `"${p}"`).join(', ');
+  const hasLen = a.out.hasLengthCtl, hasFmt = a.out.hasFormatCtl;
+  return {
+    conciseness: a.fillerWords === 0
+      ? { ok: true, text: 'No filler. Every word does work.' }
+      : a.sub.conciseness >= 85
+        ? { ok: true, text: `Only ${a.fillerWords} filler word${a.fillerWords === 1 ? '' : 's'} (${quoted}). Fine.` }
+        : { ok: false, text: `${a.fillerWords} filler words (${quoted}). Cut them; the answer won't change.` },
+    focus: a.rep.dups > 0
+      ? { ok: false, text: `${a.rep.dups} sentence${a.rep.dups === 1 ? ' is' : 's are'} repeated. Say each thing once.` }
+      : a.sub.focus < 85
+        ? { ok: false, text: 'The same request appears in different words. Ask once.' }
+        : { ok: true, text: 'Nothing important repeated.' },
+    clarity: a.sub.clarity >= 100
+      ? { ok: true, text: 'The task is clear.' }
+      : a.wc < 6
+        ? { ok: false, text: 'Too short to be clear. Say what you want, about what, and for whom, e.g. "Write a Python function that removes duplicates from a list."' }
+        : { ok: false, text: 'Start with the task: explain, list, compare, fix, summarize…' },
+    control: hasLen && hasFmt
+      ? { ok: true, text: 'Length and format are set, so the reply stays tight.' }
+      : hasLen
+        ? { ok: true, text: 'Length is set. A format (bullets, a table) makes it even tighter.' }
+        : hasFmt
+          ? { ok: false, text: 'Format is set. Add a length, e.g. "under 100 words", to cap the reply.' }
+          : a.out.visible <= 200
+            ? { ok: false, text: 'Likely a short answer anyway, but "in one sentence" guarantees it.' }
+            : { ok: false, text: 'No length or format, so the model guesses (often long). Add "in 3 bullets" or "under 100 words".' },
+  };
+}
+
+export interface Rewrite {
+  text: string;
+  /** Plain-language list of what changed, for teaching. */
+  changes: string[];
+}
+
+const LEADING_REQUEST_RE = /^\s*(?:(?:could|can|would) you|i was (?:just )?wondering if|would it be possible)/i;
+const LENGTH_HINTS: ReadonlyArray<[RegExp, string]> = [
+  [/^code request/, 'Reply with just the code and brief comments.'],
+  [/detailed$/, 'Keep it under 800 words, with headings.'],
+  [/^long-form writing/, 'Keep it under 500 words.'],
+  [/^summary/, 'Use 3 bullet points.'],
+  [/^explanation/, 'Answer in under 120 words.'],
+  [/^quick question/, 'Answer in one or two sentences.'],
+];
+
+const wordSet = (s: string): Set<string> => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []));
+
+/**
+ * Suggests a leaner version of the prompt: removes filler, drops repeated or near-duplicate
+ * sentences, and adds a reply length when none is set. Code blocks are left untouched.
+ * Returns null when there's nothing worth changing (or the prompt is too short to rewrite safely).
+ * Runs on the device; the result is shown to the user and never stored.
+ */
+export function suggestRewrite(text: string, a: Analysis, pref: LengthPref = 'auto'): Rewrite | null {
+  const raw = (text ?? '').slice(0, C.MAX_PROMPT_CHARS);
+  if (!raw.trim() || (a.wc < 4 && !a.hasCode)) return null;
+
+  const changes: string[] = [];
+  const parts = raw.split(/(```[\s\S]*?(?:```|$))/g);
+  const filler = new RegExp(FILLER_SOURCE, 'gi');
+  let removedFiller = 0, removedSentences = 0;
+
+  const cleanProse = (prose: string): string => {
+    const sentences = prose.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
+    const kept: string[] = [];
+    for (const s of sentences) {
+      const wasRequest = LEADING_REQUEST_RE.test(s);
+      let t = s.replace(filler, (m) => { removedFiller += m.trim().split(/\s+/).length; return ' '; });
+      t = t.replace(/\s+([,.!?;:])/g, '$1').replace(/^[\s,;:.!?-]+/, '').replace(/,\s*(?=[.!?]|$)/g, '').replace(/\s{2,}/g, ' ').trim();
+      if ((t.match(/[\p{L}\p{N}]+/gu) ?? []).length < 2) { if (s.trim()) removedSentences++; continue; }
+      if (wasRequest) t = t.replace(/\?$/, '.');
+      if (!/[.!?:]$/.test(t)) t += '.';
+      kept.push(t.charAt(0).toUpperCase() + t.slice(1));
+    }
+    // Drop exact and near-duplicate sentences (≥70% of the shorter one's words appear in another kept sentence).
+    const out: string[] = [];
+    let dups = 0;
+    kept.forEach((s, i) => {
+      const w = wordSet(s);
+      const dup = w.size >= 4 && kept.some((o, j) => {
+        if (j === i) return false;
+        const ow = wordSet(o);
+        if (ow.size < w.size || (ow.size === w.size && j > i)) return false;
+        let hit = 0;
+        w.forEach((x) => { if (ow.has(x)) hit++; });
+        return hit / w.size >= 0.7;
+      });
+      if (dup) dups++; else out.push(s);
+    });
+    if (dups) changes.push(`Merged ${dups} repeated request${dups === 1 ? '' : 's'} into one.`);
+    return out.join(' ');
+  };
+
+  let result = parts.map((p, i) => (i % 2 === 1 ? p : cleanProse(p))).filter((p) => p.trim()).join('\n\n').trim();
+  if (removedFiller) changes.unshift(`Removed ${removedFiller} filler word${removedFiller === 1 ? '' : 's'} (greetings, "please", "could you"…).`);
+  if (removedSentences) changes.push(`Dropped ${removedSentences} sentence${removedSentences === 1 ? '' : 's'} that asked nothing (like "thanks in advance").`);
+
+  if (!a.out.hasLengthCtl && !a.out.hasFormatCtl && pref === 'auto' && a.out.visible > 200) {
+    const hint = LENGTH_HINTS.find(([re]) => re.test(a.out.why))?.[1] ?? 'Keep the answer under 150 words.';
+    result = `${result}${a.hasCode ? '\n\n' : ' '}${hint}`;
+    changes.push(`Asked for a length ("${hint}") so the reply doesn't run long.`);
+  }
+
+  if (!changes.length || result === raw.trim()) return null;
+  return { text: result, changes };
 }
 
 /* ------------------------------------------------------------------ */

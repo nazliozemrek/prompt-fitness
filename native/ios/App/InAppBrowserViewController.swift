@@ -8,7 +8,8 @@
 //  - public/inapp.js (built from extension/src/inapp.ts) runs in an isolated WKContentWorld. The
 //    page's own scripts can't read it, and only that world can post to the "promptFitness" handler.
 //  - Messages are accepted only from the main frame of the three chat hosts over https, and every
-//    entry is re-validated by SharedStore.sanitize (numbers only) before it is stored on the device.
+//    entry is re-validated by SharedStore.sanitize (numbers only) before it's handed to the dashboard
+//    (onEntry), which validates it again and saves it on the device.
 //  - Prompt Fitness adds no network requests. The web view talks to the chat sites exactly as Safari
 //    would; links to other sites open in the system browser.
 //
@@ -45,6 +46,8 @@ final class InAppBrowserViewController: UIViewController {
     private static let world = WKContentWorld.defaultClient
 
     var onClose: ((_ counted: Int) -> Void)?
+    /// Receives each sanitized numeric entry as soon as a reply is counted.
+    var onEntry: ((_ entry: [String: Any]) -> Void)?
 
     private var site: Site
     private var webView: WKWebView!
@@ -250,8 +253,9 @@ final class InAppBrowserViewController: UIViewController {
         case "ready":
             statusLabel.text = "Measuring on this device. Message text never leaves the page."
         case "log":
-            guard let raw = body["entry"] as? [String: Any], let entry = SharedStore.sanitize(raw) else { return }
-            SharedStore.append(entry)
+            guard let raw = body["entry"] as? [String: Any], let entry = SharedStore.sanitize(raw),
+                  entry["src"] as? String == "inapp" else { return }
+            onEntry?(entry)
             count += 1
             waterMl += Self.amount(body["waterMl"])
             wh += Self.amount(body["wh"])

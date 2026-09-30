@@ -2,9 +2,9 @@
 //  SharedStore.swift
 //  Compiled into BOTH the App target and the Safari Extension target.
 //
-//  A tiny on-device mailbox in the App Group container: the Safari extension and the in-app
-//  browser append numeric usage entries, the dashboard drains them into its own store.
-//  Nothing leaves the device.
+//  A tiny on-device mailbox in the App Group container: the Safari extension appends numeric
+//  usage entries, the dashboard drains them into its own store. Nothing leaves the device.
+//  (The in-app browser uses sanitize() only; its entries go straight to the dashboard.)
 //  NSFileCoordinator serializes access across the two processes.
 //
 

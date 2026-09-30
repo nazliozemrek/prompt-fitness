@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  C, MODELS, analyze, buildTips, compute, ecoFitness, estTokens, getModel, guessModel,
-  parseUsageJson, pruneLog, sanitizeEntry, summarize, type LogEntry,
+  C, MODELS, analyze, buildTips, compute, ecoFitness, estTokens, explainScores, getModel, guessModel,
+  parseUsageJson, pruneLog, sanitizeEntry, suggestRewrite, summarize, type LogEntry,
 } from '../shared/core';
 
 const gpt4o = getModel('gpt4o');
@@ -69,6 +69,39 @@ describe('analyze', () => {
     expect(tips.length).toBeGreaterThan(0);
     expect(tips.length).toBeLessThanOrEqual(3);
     for (let i = 1; i < tips.length; i++) expect((tips[i - 1]?.save ?? 0)).toBeGreaterThanOrEqual(tips[i]?.save ?? 0);
+  });
+});
+
+describe('coaching', () => {
+  const wordy = "Hi there! I hope you're doing well. Could you please explain to me what a REST API is? "
+    + 'Could you please explain what a REST API is and how it works? Thank you so much in advance!';
+
+  it('rewrites a wordy prompt into a shorter, higher-scoring one', () => {
+    const a = analyze(wordy, gpt4o)!;
+    const r = suggestRewrite(wordy, a)!;
+    expect(r.text).toBe('Explain what a REST API is and how it works. Answer in under 120 words.');
+    const b = analyze(r.text, gpt4o)!;
+    expect(b.score).toBeGreaterThan(a.score);
+    expect(compute(gpt4o, b.inputTok, b.outputTok).waterL).toBeLessThan(compute(gpt4o, a.inputTok, a.outputTok).waterL);
+    expect(r.changes.length).toBeGreaterThanOrEqual(3);
+  });
+  it('leaves code blocks untouched', () => {
+    const p = 'Please fix this bug:\n```js\nconst very = just(); // please\n```';
+    const r = suggestRewrite(p, analyze(p, gpt4o)!)!;
+    expect(r.text).toContain('```js\nconst very = just(); // please\n```');
+    expect(r.text.startsWith('Fix this bug:')).toBe(true);
+  });
+  it('offers no rewrite for lean or very short prompts', () => {
+    const lean = 'Explain REST APIs to a junior developer in 5 bullet points, with one real-world example.';
+    expect(suggestRewrite(lean, analyze(lean, gpt4o)!)).toBeNull();
+    expect(suggestRewrite('code?', analyze('code?', gpt4o)!)).toBeNull();
+  });
+  it('explains each sub-score with the specific problem', () => {
+    const n = explainScores(analyze(wordy, gpt4o)!);
+    expect(n.conciseness.ok).toBe(false);
+    expect(n.conciseness.text).toContain('"hi there"');
+    expect(n.control.ok).toBe(false);
+    expect(explainScores(analyze('In two sentences, why does saving water matter?', gpt4o)!).clarity.ok).toBe(true);
   });
 });
 

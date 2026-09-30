@@ -68,6 +68,9 @@ body {
     bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   }
   .toast.show { @apply opacity-100; }
+  /* Keep toasts above the sticky copy bar on phones. */
+  body.has-copybar .toast { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
+  body.has-copybar { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
 }
 
 .ring-track { stroke: rgba(148,163,184,.14); }

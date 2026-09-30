@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   C, MODELS, analyze, buildTips, compute, ecoFitness, estTokens, explainScores, getModel, guessModel,
-  parseUsageJson, pruneLog, sanitizeEntry, suggestRewrite, summarize, type LogEntry,
+  fmtRange, fmtWaterApprox, fmtWaterRange, parseUsageJson, pruneLog, roundHonest, sanitizeEntry, suggestRewrite, summarize,
+  type LogEntry,
 } from '../shared/core';
 
 const gpt4o = getModel('gpt4o');
@@ -102,6 +103,25 @@ describe('coaching', () => {
     expect(n.conciseness.text).toContain('"hi there"');
     expect(n.control.ok).toBe(false);
     expect(explainScores(analyze('In two sentences, why does saving water matter?', gpt4o)!).clarity.ok).toBe(true);
+  });
+});
+
+describe('honest display', () => {
+  it('rounds to justified precision', () => {
+    expect(roundHonest(8.73)).toBe(9);
+    expect(roundHonest(41.4)).toBe(41);
+    expect(roundHonest(0.347)).toBe(0.3);
+    expect(roundHonest(0)).toBe(0);
+  });
+  it('shows ranges instead of single precise values', () => {
+    expect(fmtRange(8.8, 'mL')).toBe('~4–18 mL');
+    expect(fmtWaterRange(0.0088)).toBe('~4–18 mL');
+    expect(fmtWaterRange(0.8)).toBe('~0.4–2 L');
+    expect(fmtWaterApprox(0.0088)).toBe('~9 mL');
+  });
+  it('never shows a meaningless zero', () => {
+    expect(fmtRange(0, 'Wh')).toBe('');
+    expect(fmtWaterApprox(0)).toBe('–');
   });
 });
 

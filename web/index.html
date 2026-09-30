@@ -9,7 +9,8 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#060a10">
 <meta name="format-detection" content="telephone=no">
-<title>Prompt Fitness – Better AI Prompts</title>
+<title>Prompt Fitness – Better AI results, less wasted compute</title>
+<meta name="description" content="Optimize your prompts, choose a right-sized model, and see the estimated footprint of your AI use. Runs on your device.">
 <link rel="icon" href="favicon.png">
 <link rel="stylesheet" href="styles.css">
 <script src="app.js" defer></script>
@@ -31,12 +32,20 @@
       </div>
       <div>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Prompt Fitness</h1>
-        <p class="text-sm text-slate-300">Better AI answers with shorter prompts</p>
+        <p class="text-sm text-slate-200">Better AI results. Less wasted compute.</p>
+        <p class="text-xs muted">Optimize prompts, right-size models, see the estimated footprint.</p>
         <button type="button" id="headerToday" class="mt-1 text-xs text-mint hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-mint/50 rounded" hidden></button>
       </div>
     </div>
     <button id="openConnect" type="button" class="btn-ghost self-start sm:self-auto"><i data-lucide="message-square-share" class="w-4 h-4 text-mint"></i><span id="connectLabel">Use with ChatGPT &amp; Claude</span></button>
   </header>
+
+  <ol id="firstRun" class="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" aria-label="How it works" hidden>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">1</span> <b class="text-slate-100">Paste</b> <span class="muted">your prompt</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">2</span> <b class="text-slate-100">Improve</b> <span class="muted">it on your device</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">3</span> <b class="text-slate-100">Compare</b> <span class="muted">before and after</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">4</span> <b class="text-slate-100">Track</b> <span class="muted">your efficiency</span></li>
+  </ol>
 </div>
 
 <main class="max-w-7xl mx-auto px-4 sm:px-6 pb-10 grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -52,7 +61,7 @@
 
     <div id="taWrap" class="relative mt-4">
       <label for="prompt" class="sr-only">Prompt</label>
-      <textarea id="prompt" class="ta" rows="6" maxlength="200000" placeholder="Paste or type a prompt…"></textarea>
+      <textarea id="prompt" class="ta !min-h-[128px]" rows="5" maxlength="200000" placeholder="Paste or type a prompt…" aria-describedby="promptMsg"></textarea>
       <div id="extBadge" class="hidden absolute right-3 bottom-3 items-center gap-2 rounded-full border border-mint/30 bg-ink-950/90 px-3 py-1.5 text-xs shadow-lg" aria-hidden="true">
         <i data-lucide="sprout" class="w-3.5 h-3.5 text-mint"></i>
         <span class="font-mono text-aqua" id="badgeWater">0 mL</span>
@@ -60,6 +69,8 @@
         <span class="font-mono text-mint" id="badgeScore">–</span>
       </div>
     </div>
+
+    <p id="promptMsg" class="mt-2 text-sm text-amberx" role="status" hidden></p>
 
     <div class="mt-3 flex flex-wrap items-center gap-2">
       <button id="sampleBtn" type="button" class="btn-ghost"><i data-lucide="shuffle" class="w-4 h-4"></i>Try a sample</button>
@@ -70,17 +81,47 @@
       </div>
     </div>
 
+    <p id="leanNote" class="mt-5 rounded-2xl border border-mint/25 bg-mint/[.05] p-4 text-sm text-slate-100" hidden>
+      <i data-lucide="circle-check" class="inline w-4 h-4 text-mint -mt-0.5 mr-1"></i>Already efficient: nothing worth cutting. Send it as is.
+    </p>
+
     <div id="rewriteCard" class="mt-5 rounded-2xl border border-mint/30 bg-mint/[.06] p-4" hidden>
-      <p class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="wand-sparkles" class="w-4 h-4 text-mint"></i>Try this version</p>
-      <p id="rewriteImpact" class="mt-1 text-xs text-mint font-mono"></p>
-      <p id="rewriteText" class="mt-3 whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/30 p-3 text-base text-slate-100"></p>
-      <div class="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" id="useRewrite" class="btn-primary"><i data-lucide="pen-line" class="w-4 h-4"></i>Use this version</button>
-        <button type="button" id="copyRewrite" class="btn-ghost"><i data-lucide="copy" class="w-4 h-4"></i><span>Copy</span></button>
+      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="wand-sparkles" class="w-4 h-4 text-mint"></i>Optimized version</p>
+        <p id="rewriteImpact" class="text-xs text-mint font-mono"></p>
       </div>
-      <p class="mt-4 text-xs font-medium text-slate-200">What changed and why</p>
-      <ul id="rewriteChanges" class="mt-1 space-y-1 text-xs muted list-disc pl-4"></ul>
-      <p class="mt-3 text-[11px] muted">Made on your device. It's a suggestion: check it still says what you mean.</p>
+
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <figure class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <figcaption class="text-[11px] uppercase tracking-wide muted">Before</figcaption>
+          <p id="beforeText" class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-400"></p>
+        </figure>
+        <figure class="rounded-xl border border-mint/30 bg-black/30 p-3">
+          <figcaption class="text-[11px] uppercase tracking-wide text-mint">After</figcaption>
+          <p id="rewriteText" class="mt-1.5 whitespace-pre-wrap break-words text-base text-slate-100"></p>
+        </figure>
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" id="copyRewrite" class="btn-primary" aria-live="polite"><i data-lucide="copy" class="w-4 h-4"></i><span>Copy optimized prompt</span></button>
+        <button type="button" id="useRewrite" class="btn-ghost"><i data-lucide="pen-line" class="w-4 h-4"></i>Edit in the box</button>
+      </div>
+
+      <p class="mt-4 text-xs font-medium text-slate-200">Why this is better</p>
+      <ul id="rewriteChanges" class="mt-1 space-y-1 text-xs text-slate-300 list-disc pl-4"></ul>
+
+      <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
+        <summary class="flex items-center justify-between gap-3 px-3 py-2.5 min-h-[44px] text-xs text-slate-300">Compare the numbers<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+        <div class="px-3 pb-3 overflow-x-auto">
+          <table class="w-full text-xs">
+            <caption class="sr-only">Before and after comparison</caption>
+            <thead><tr class="muted"><th scope="col" class="text-left font-normal py-1">Metric</th><th scope="col" class="text-right font-normal py-1">Before</th><th scope="col" class="text-right font-normal py-1">After</th></tr></thead>
+            <tbody id="compareRows" class="font-mono text-slate-200"></tbody>
+          </table>
+          <p class="mt-2 text-[11px] muted">Token counts are estimated from text length; the footprint is modeled. Shorter isn't the goal: a clearer request with a set reply length usually costs less overall.</p>
+        </div>
+      </details>
+      <p class="mt-3 text-[11px] muted">Made on your device by rules, not AI. Check it still says what you mean.</p>
     </div>
 
     <div id="scoreBlock" class="mt-6 pt-6 border-t border-white/10 grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-5 items-center" hidden>
@@ -147,28 +188,38 @@
 
     <section class="card p-5 sm:p-6" aria-labelledby="thisTitle">
       <div class="flex items-center justify-between gap-3">
-        <h2 id="thisTitle" class="h2"><i data-lucide="droplet" class="w-5 h-5 text-aqua"></i>This prompt's footprint</h2>
-        <span id="liveModel" class="text-xs muted"></span>
+        <h2 id="thisTitle" class="h2"><i data-lucide="droplet" class="w-5 h-5 text-aqua"></i>Estimated footprint</h2>
+        <span class="chip bg-white/5 text-slate-300 border border-white/10" title="Calculated from model assumptions, not measured">Modeled</span>
       </div>
-      <div class="mt-3 flex items-baseline gap-2" aria-live="polite" aria-atomic="true">
-        <span id="pWater" class="stat-num text-4xl sm:text-5xl">0</span>
-        <span class="font-mono text-aqua text-lg">mL water</span>
-      </div>
-      <p id="pBottleText" class="mt-1 text-sm muted">0% of a 500 ml bottle</p>
-      <div class="mt-4 grid grid-cols-2 gap-2.5">
-        <div class="mini">
-          <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 text-amberx"></i>Energy</p>
-          <p class="mt-1"><span id="pEnergy" class="stat-num text-xl">0</span> <span class="text-xs muted">Wh</span></p>
+      <p id="fpEmpty" class="mt-3 text-sm muted">Paste a prompt to estimate what one request with <span id="liveModel"></span> uses.</p>
+      <div id="fpBody" hidden>
+        <p class="mt-3 stat-num text-3xl sm:text-4xl text-white" aria-live="polite"><span id="pWater"></span> <span class="text-base font-sans text-aqua">water</span></p>
+        <div class="mt-4 grid grid-cols-2 gap-2.5">
+          <div class="mini">
+            <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 text-amberx"></i>Energy</p>
+            <p id="pEnergy" class="mt-1 stat-num text-lg"></p>
+          </div>
+          <div class="mini">
+            <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="leaf" class="w-3.5 h-3.5 text-mint"></i>Carbon</p>
+            <p id="pCo2" class="mt-1 stat-num text-lg"></p>
+          </div>
         </div>
-        <div class="mini">
-          <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="leaf" class="w-3.5 h-3.5 text-mint"></i>Carbon</p>
-          <p class="mt-1"><span id="pCo2" class="stat-num text-xl">0</span> <span class="text-xs muted">g CO₂e</span></p>
-        </div>
+        <p id="outWhy" class="mt-3 text-[11px] muted leading-relaxed"></p>
       </div>
-      <p id="outWhy" class="mt-3 text-[11px] muted leading-relaxed"></p>
+      <p class="mt-3 text-[11px] muted leading-relaxed">Estimates are based on model assumptions, estimated output size, and published energy and water figures. They are not direct measurements of a single AI request. <button type="button" class="text-mint underline-offset-2 hover:underline" data-goto="methCard">Methodology</button></p>
     </section>
   </div>
 
+  <section id="progressEmpty" class="card p-5 sm:p-6 lg:col-span-12 text-center" aria-labelledby="peTitle" hidden>
+    <h2 id="peTitle" class="text-base font-semibold text-white">No prompts tracked yet</h2>
+    <p class="mt-1 text-sm muted">Analyze your first prompt and tap "Add to my stats" to start building your AI Fitness.</p>
+    <div class="mt-4 flex flex-wrap justify-center gap-2">
+      <button type="button" id="peStart" class="btn-primary"><i data-lucide="sparkles" class="w-4 h-4"></i>Analyze a prompt</button>
+      <button type="button" id="peDemo" class="btn-ghost">Explore with demo data</button>
+    </div>
+  </section>
+
+  <div id="progressWrap" class="contents">
   <div class="lg:col-span-12 pt-3">
     <h2 class="text-lg font-semibold text-white">Your progress</h2>
     <p class="text-sm muted">Prompts you add or track, and what they cost in water, energy and carbon. Estimates only.</p>
@@ -253,12 +304,20 @@
     <ul id="logList" class="mt-4 divide-y divide-white/5"></ul>
   </section>
 
-  <section class="card p-5 sm:p-6 lg:col-span-5" aria-labelledby="methTitle">
-    <h2 id="methTitle" class="h2"><i data-lucide="book-open" class="w-5 h-5 text-mint"></i>How the numbers work</h2>
+  </div>
+
+  <section id="methCard" class="card p-5 sm:p-6 lg:col-span-5 scroll-mt-4" aria-labelledby="methTitle">
+    <h2 id="methTitle" class="h2"><i data-lucide="book-open" class="w-5 h-5 text-mint"></i>Methodology</h2>
     <div class="mt-4 rounded-xl border border-amberx/25 bg-amberx/[.06] p-4 text-sm leading-relaxed text-amber-100/90">
       <p class="font-semibold text-amber-200">Estimates, not measurements.</p>
-      <p class="mt-1">AI providers don't publish per-prompt water or energy data, and we can't know which data center served you. Real values can be several times lower or higher.</p>
+      <p class="mt-1">AI providers don't publish per-request water or energy data, and nobody outside can know which data center served you. That's why footprints are shown as ranges.</p>
     </div>
+    <dl class="mt-4 space-y-3 text-sm leading-relaxed">
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-mint/10 text-mint mr-1.5">Measured</span>Imported API usage</dt><dd class="muted mt-0.5">Token counts you paste from a provider's usage data are the provider's own numbers.</dd></div>
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-aqua/10 text-aqua mr-1.5">Estimated</span>Tokens and reply size</dt><dd class="muted mt-0.5">Counted from your text (about 4 characters per token) and from what the prompt asks for. Real tokenizers differ.</dd></div>
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-white/5 text-slate-300 border border-white/10 mr-1.5">Modeled</span>Water, energy, carbon</dt><dd class="muted mt-0.5">Calculated from those tokens with published per-model assumptions. We show half to double our central estimate; published figures vary even more.</dd></div>
+      <div><dt class="font-medium text-slate-100">Why they're still useful</dt><dd class="muted mt-0.5">The absolute numbers are uncertain, but the comparisons hold: a shorter reply, a lighter model or less repeated context uses less, whatever the exact figure.</dd></div>
+    </dl>
     <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
       <summary class="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] text-sm font-medium text-slate-200">Footprint formula<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
       <div class="px-4 pb-4 text-sm muted leading-relaxed space-y-2">
@@ -287,6 +346,10 @@ CO₂e (g) = energy × 370 g per kWh</pre>
   <span class="inline-flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-mint"></i>Runs on your device. Prompts are never saved or sent. Coefficients v2026.09</span>
   <span>The daily budget is a personal goal, not a scientific limit. Not affiliated with OpenAI, Anthropic or Google.</span>
 </footer>
+
+<div id="copyBar" class="fixed inset-x-0 bottom-0 z-30 lg:hidden border-t border-white/10 bg-ink-950/95 px-4 pt-3" style="padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px))" hidden>
+  <button type="button" id="copyBarBtn" class="btn-primary w-full justify-center"><i data-lucide="copy" class="w-4 h-4"></i><span>Copy optimized prompt</span></button>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

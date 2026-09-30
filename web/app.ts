@@ -5,13 +5,14 @@
 import Chart from 'chart.js/auto';
 import {
   createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe,
-  MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
+  CircleCheck, MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
   KeyRound, Leaf, Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors,
   Send, Settings2, Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 } from 'lucide';
 import {
   C, CLASS_META, MODELS, analyze, buildTips, compute, dayStart, ecoFitness, fmtAuto, fmtMl, fmtN, fmtWater,
-  explainScores, getModel, guessModel, isModelId, parseUsageJson, pruneLog, suggestRewrite, summarize,
+  explainScores, fmtRange, fmtWaterApprox, fmtWaterRange, getModel, guessModel, isModelId, parseUsageJson, pruneLog,
+  roundHonest, suggestRewrite, summarize,
   type Analysis, type EntrySource, type LengthPref, type LogEntry, type Model, type ModelId,
 } from '../shared/core';
 import {
@@ -24,7 +25,7 @@ import {
 
 const ICONS = {
   BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe, KeyRound, Leaf,
-  MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
+  CircleCheck, MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
   Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors, Send, Settings2,
   Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 };
@@ -130,18 +131,81 @@ let rewriteText = '';
 
 function renderRewrite(a: Analysis | null, model: Model): void {
   const card = $('#rewriteCard');
-  const r = a ? suggestRewrite($<HTMLTextAreaElement>('#prompt').value, a, S.pref) : null;
+  const original = $<HTMLTextAreaElement>('#prompt').value;
+  const r = a ? suggestRewrite(original, a, S.pref) : null;
   const b = r ? analyze(r.text, model, S.pref, S.history) : null;
-  if (!a || !r || !b || b.score < a.score) { card.hidden = true; rewriteText = ''; return; }
+  const show = Boolean(a && r && b && b.score >= a.score);
+  $('#leanNote').hidden = !(a && !show && a.score >= 85);
+  if (!show || !a || !r || !b) { card.hidden = true; rewriteText = ''; updateCopyBar(); return; }
+  if (rewriteText !== r.text) resetCopyButtons();
   rewriteText = r.text;
-  const before = compute(model, a.inputTok, a.outputTok).waterL * 1000;
-  const after = compute(model, b.inputTok, b.outputTok).waterL * 1000;
+  const before = compute(model, a.inputTok, a.outputTok).waterL;
+  const after = compute(model, b.inputTok, b.outputTok).waterL;
   const less = before > 0 ? Math.round((1 - after / before) * 100) : 0;
-  $('#rewriteImpact').textContent = `Score ${a.score} → ${b.score} · ${fmtMl(before)} mL → ${fmtMl(after)} mL per prompt`
-    + (less > 0 ? ` (${less}% less water)` : '');
+  // Relative change is meaningful even though absolute footprints are uncertain.
+  $('#rewriteImpact').textContent = `Score ${a.score} → ${b.score}` + (less > 0 ? ` · ~${less}% less estimated water` : '');
+  $('#beforeText').textContent = original.trim();
   $('#rewriteText').textContent = r.text;
-  $('#rewriteChanges').replaceChildren(...r.changes.map((c) => { const li = document.createElement('li'); li.textContent = c; return li; }));
+  $('#rewriteChanges').replaceChildren(...r.changes.slice(0, 4).map((c) => { const li = document.createElement('li'); li.textContent = c; return li; }));
+  const rows: [string, string, string][] = [
+    ['Prompt length (est. tokens)', fmtN(a.promptTok), fmtN(b.promptTok)],
+    ['Clarity', `${a.sub.clarity}`, `${b.sub.clarity}`],
+    ['Reply control', `${a.sub.control}`, `${b.sub.control}`],
+    ['Expected reply (est. tokens)', fmtN(a.out.visible), fmtN(b.out.visible)],
+    ['Efficiency score', `${a.score}`, `${b.score}`],
+    ['Water (modeled)', fmtWaterRange(before), fmtWaterRange(after)],
+  ];
+  $('#compareRows').innerHTML = rows.map(([k, x, y]) =>
+    `<tr class="border-t border-white/5"><th scope="row" class="py-1.5 pr-2 text-left font-sans font-normal muted">${esc(k)}</th><td class="py-1.5 text-right">${esc(x)}</td><td class="py-1.5 pl-3 text-right text-mint">${esc(y)}</td></tr>`).join('');
   card.hidden = false;
+  updateCopyBar();
+}
+
+/* ---------------- Copy (primary action) ---------------- */
+
+const COPY_LABEL = 'Copy optimized prompt';
+let copyResetTimer = 0;
+
+function setCopyLabel(text: string, done: boolean): void {
+  for (const id of ['#copyRewrite', '#copyBarBtn']) {
+    const btn = $(id);
+    const span = btn.querySelector('span');
+    if (span) span.textContent = text;
+    btn.classList.toggle('!bg-white', done);
+  }
+}
+
+function resetCopyButtons(): void {
+  window.clearTimeout(copyResetTimer);
+  setCopyLabel(COPY_LABEL, false);
+}
+
+async function copyOptimized(): Promise<void> {
+  if (!rewriteText) return;
+  if (await copyText(rewriteText)) {
+    setCopyLabel('Copied ✓', true);
+    void tapFeedback();
+    window.clearTimeout(copyResetTimer);
+    copyResetTimer = window.setTimeout(resetCopyButtons, 2200);
+  } else {
+    showPromptMsg("Couldn't copy automatically. Select the optimized text and copy it instead.");
+  }
+}
+
+/** Sticky copy bar on phones: shown while a rewrite exists and its own Copy button is off screen. */
+let copyInView = true;
+function updateCopyBar(): void {
+  const show = Boolean(rewriteText) && !copyInView && !window.matchMedia('(min-width: 1024px)').matches;
+  $('#copyBar').hidden = !show;
+  document.body.classList.toggle('has-copybar', show);
+}
+
+/* ---------------- Prompt messages (errors and limits) ---------------- */
+
+function showPromptMsg(text: string): void {
+  const el = $('#promptMsg');
+  el.textContent = text;
+  el.hidden = !text;
 }
 
 function renderTips(a: Analysis | null, model: Model): void {
@@ -178,18 +242,22 @@ function renderLive(): void {
   $('#tipsBlock').hidden = !a;
   $('#liveModel').textContent = model.name;
   $('#tHistory').textContent = fmtN(S.history);
+  $('#fpEmpty').hidden = Boolean(a);
+  $('#fpBody').hidden = !a;
+  const typed = $<HTMLTextAreaElement>('#prompt').value;
+  showPromptMsg(typed.length >= C.MAX_PROMPT_CHARS
+    ? `This prompt reached the ${fmtN(C.MAX_PROMPT_CHARS)}-character limit, so the end was cut off. Try a shorter part, or split it.`
+    : '');
 
   if (!a) {
-    for (const k of ['pWater', 'pEnergy', 'pCo2']) animateValue(k, 0, (v) => { $(`#${k}`).textContent = fmtAuto(v); });
     anims.set('effScore', { cur: 0, raf: 0 });
-    $('#pBottleText').textContent = '0% of a 500 ml bottle';
     $('#tPrompt').textContent = '0';
     $('#tOut').textContent = '0';
     $('#effScore').textContent = '–';
     setRing($<SVGCircleElement & HTMLElement>('#effRing'), 0);
     $('#effVerdict').textContent = 'Paste a prompt to see how clear and lean it is.';
     $('#outWhy').textContent = 'Reply size is estimated from what your prompt asks for.';
-    $('#badgeWater').textContent = '0 mL';
+    $('#badgeWater').textContent = '–';
     $('#badgeScore').textContent = '–';
     renderSubScores(null);
     renderRewrite(null, model);
@@ -199,25 +267,20 @@ function renderLive(): void {
   }
 
   const f = compute(model, a.inputTok, a.outputTok);
-  const ml = f.waterL * 1000;
-  animateValue('pWater', ml, (v) => { $('#pWater').textContent = fmtMl(v); });
-  animateValue('pEnergy', f.kWh * 1000, (v) => { $('#pEnergy').textContent = fmtAuto(v); });
-  animateValue('pCo2', f.co2g, (v) => { $('#pCo2').textContent = fmtAuto(v); });
+  $('#pWater').textContent = fmtWaterRange(f.waterL);
+  $('#pEnergy').textContent = fmtRange(f.kWh * 1000, 'Wh') || '–';
+  $('#pCo2').textContent = fmtRange(f.co2g, 'g CO₂e') || '–';
   animateValue('effScore', a.score, (v) => { $('#effScore').textContent = fmtN(v); });
 
-  const bottles = f.waterL / C.BOTTLE_L;
-  $('#pBottleText').textContent = bottles < 1
-    ? `${fmtN(bottles * 100, bottles < 0.1 ? 1 : 0)}% of a 500 ml bottle`
-    : `${fmtAuto(bottles)} bottles of 500 ml`;
   $('#tPrompt').textContent = fmtN(a.promptTok);
   $('#tOut').textContent = fmtN(a.outputTok);
-  $('#outWhy').textContent = `Reply estimate: ~${fmtN(a.out.visible)} tokens (${a.out.why})`
+  $('#outWhy').textContent = `For one request with ${model.name}. Reply estimated at ~${fmtN(a.out.visible)} tokens (${a.out.why})`
     + (a.hiddenTok ? `, plus ~${fmtN(a.hiddenTok)} hidden reasoning tokens (assumed).` : '.')
     + (a.historyTok ? ` Input includes ${fmtN(a.historyTok)} tokens of chat history.` : '');
 
   setRing($<SVGCircleElement & HTMLElement>('#effRing'), a.score, scoreColor(a.score));
   $('#effVerdict').textContent = verdict(a.score);
-  $('#badgeWater').textContent = `${fmtMl(ml)} mL`;
+  $('#badgeWater').textContent = fmtWaterApprox(f.waterL);
   $('#badgeScore').textContent = `${a.score}%`;
   renderSubScores(a);
   renderRewrite(a, model);
@@ -235,7 +298,13 @@ function renderToday(): void {
   $('#todayCount').textContent = `${sum.count} prompt${sum.count === 1 ? '' : 's'}`;
   const head = $('#headerToday');
   head.hidden = sum.count === 0;
-  head.textContent = `Today: ${sum.count} prompt${sum.count === 1 ? '' : 's'} · ${fmtWater(sum.waterL)} of water →`;
+  head.textContent = `Today: ${sum.count} prompt${sum.count === 1 ? '' : 's'} · ${fmtWaterApprox(sum.waterL)} of water (est.) →`;
+  // First use: show the four-step guide and an empty state instead of empty dashboards.
+  const empty = S.log.length === 0;
+  $('#firstRun').hidden = !empty;
+  $('#progressEmpty').hidden = !empty;
+  $('#progressWrap').hidden = empty;
+  $('#methCard').classList.toggle('lg:col-span-12', empty);
   animateValue('budgetUsed', sum.waterL, (v) => { $('#budgetUsed').textContent = fmtN(v, 2); });
   $('#budgetMax').textContent = fmtN(S.budget, 1);
   const fill = $('#budgetFill');
@@ -247,9 +316,11 @@ function renderToday(): void {
     : `${fmtWater(S.budget - sum.waterL)} left, about ${fmtN(Math.floor(((S.budget - sum.waterL) * 1000) / 20))} typical prompts`;
   $$('#budgetSeg [data-budget]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.budget) === S.budget)));
 
-  animateValue('eqBottles', sum.waterL / C.BOTTLE_L, (v) => { $('#eqBottles').textContent = fmtAuto(v); });
-  animateValue('eqPhones', sum.kWh / C.PHONE_KWH, (v) => { $('#eqPhones').textContent = fmtAuto(v); });
-  animateValue('eqFlush', sum.waterL / C.FLUSH_L, (v) => { $('#eqFlush').textContent = fmtAuto(v); });
+  // Everyday equivalents: whole or one-digit values only, "<0.1" when tiny, "–" when nothing tracked.
+  const eq = (v: number): string => (v <= 0 ? '–' : v < 0.1 ? '<0.1' : `~${roundHonest(v)}`);
+  $('#eqBottles').textContent = eq(sum.waterL / C.BOTTLE_L);
+  $('#eqPhones').textContent = eq(sum.kWh / C.PHONE_KWH);
+  $('#eqFlush').textContent = eq(sum.waterL / C.FLUSH_L);
 
   const fitness = ecoFitness(sum, S.budget);
   const ring = $<SVGCircleElement & HTMLElement>('#fitRing');
@@ -295,9 +366,9 @@ function renderLog(): void {
       <span class="h-8 w-8 shrink-0 grid place-items-center rounded-lg bg-white/5 text-slate-300"><i data-lucide="${SRC_ICON[e.src]}" class="w-4 h-4"></i></span>
       <div class="min-w-0 flex-1">
         <p class="text-sm text-slate-100 truncate">${esc(m.name)}${e.demo ? ' <span class="text-[10px] text-amberx/80">demo</span>' : ''}</p>
-        <p class="text-xs muted font-mono">${when}, ${fmtN(e.i)} in / ${fmtN(e.o)} out</p>
+        <p class="text-xs muted font-mono">${when}, ${fmtN(e.i)} in / ${fmtN(e.o)} out · ${e.src === 'usage' ? 'measured' : 'est.'}</p>
       </div>
-      <span class="font-mono text-sm text-aqua whitespace-nowrap">${fmtMl(f.waterL * 1000)} mL</span>
+      <span class="font-mono text-sm text-aqua whitespace-nowrap" title="Modeled estimate">${fmtWaterApprox(f.waterL)}</span>
       ${score}
     </li>`;
   }).join('');
@@ -328,7 +399,7 @@ function initCharts(): void {
       datasets: [
         { type: 'line', label: 'Avg efficiency', data: [], yAxisID: 'y1', borderColor: '#3dd8f5', backgroundColor: '#3dd8f5', tension: 0.35, pointRadius: 3, spanGaps: true, order: 0 },
         { type: 'line', label: 'Daily budget', data: [], yAxisID: 'y', borderColor: 'rgba(148,163,184,.55)', borderDash: [6, 6], borderWidth: 1.5, pointRadius: 0, order: 1 },
-        { type: 'bar', label: 'Water (L)', data: [], yAxisID: 'y', backgroundColor: [], borderRadius: 8, maxBarThickness: 44, order: 2 },
+        { type: 'bar', label: 'Est. water (L)', data: [], yAxisID: 'y', backgroundColor: [], borderRadius: 8, maxBarThickness: 44, order: 2 },
       ],
     },
     options: {
@@ -347,7 +418,7 @@ function initCharts(): void {
       },
       scales: {
         x: { grid: { display: false }, border: { display: false } },
-        y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.08)' }, border: { display: false }, title: { display: true, text: 'Water (L)' } },
+        y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.08)' }, border: { display: false }, title: { display: true, text: 'Estimated water (L)' } },
         y1: { position: 'right', min: 0, max: 100, grid: { display: false }, border: { display: false }, title: { display: true, text: 'Efficiency %' } },
       },
     },
@@ -358,9 +429,9 @@ function initCharts(): void {
     data: { labels: MODELS.map((m) => m.name), datasets: [{ data: [], backgroundColor: [], borderColor: [], borderWidth: 1, borderRadius: 6, maxBarThickness: 26 }] },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation,
-      plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: { label: (c) => ` ${fmtMl(c.parsed.x ?? 0)} mL per prompt` } } },
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: { label: (c) => ` ~${fmtMl(c.parsed.x ?? 0)} mL per prompt (modeled)` } } },
       scales: {
-        x: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.08)' }, border: { display: false }, title: { display: true, text: 'Water per prompt (mL)' } },
+        x: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.08)' }, border: { display: false }, title: { display: true, text: 'Estimated water per prompt (mL)' } },
         y: { grid: { display: false }, border: { display: false }, ticks: { color: (c) => (MODELS[c.index]?.id === S.modelId ? '#4ef0a8' : '#94a3b8') } },
       },
     },
@@ -447,7 +518,7 @@ function addEntries(entries: LogEntry[]): void {
 
 function logCurrentPrompt(): void {
   const a = S.analysis;
-  if (!a) { toast('Paste a prompt first.'); $('#prompt').focus(); return; }
+  if (!a) { showPromptMsg('Paste a prompt first. Then you can add it to your stats.'); $('#prompt').focus(); return; }
   const model = getModel(S.modelId);
   const f = compute(model, a.inputTok, a.outputTok);
   const src: EntrySource = S.pendingSource ?? (S.mode === 'extension' ? 'extension' : 'playground');
@@ -458,7 +529,7 @@ function logCurrentPrompt(): void {
   renderLive();
   void tapFeedback();
   const todayL = summarize(S.log.filter((e) => e.t >= dayStart())).waterL;
-  toast(`Added to your stats: ${fmtMl(f.waterL * 1000)} mL. Today: ${fmtN(todayL, 2)} of ${fmtN(S.budget, 1)} L.`);
+  toast(`Added to your stats (${fmtWaterApprox(f.waterL)} estimated). Today: ${fmtWaterApprox(todayL)}.`);
 }
 
 const SAMPLES = [
@@ -600,9 +671,11 @@ const WHERE_STEPS: Record<string, { heading: string; steps: [string, string][] }
   web: {
     heading: 'Use it with any AI chat',
     steps: [
-      ['message-square', 'Write your prompt as usual in ChatGPT, Claude or Gemini.'],
-      ['text-select', 'Before sending, paste it here.'],
-      ['copy', 'Copy the tighter version back and send that instead.'],
+      ['pen-line', 'Write your prompt as you normally would.'],
+      ['text-select', 'Paste it into Prompt Fitness.'],
+      ['wand-sparkles', 'Review the optimized version.'],
+      ['copy', 'Tap Copy optimized prompt.'],
+      ['send', 'Paste it into ChatGPT, Claude or Gemini and send.'],
     ],
   },
 };
@@ -663,10 +736,23 @@ function wire(): void {
     ta.focus();
     toast('Rewrite applied. Edit it if anything is missing.');
   });
-  $('#copyRewrite').addEventListener('click', async () => {
-    if (!rewriteText) return;
-    toast(await copyText(rewriteText) ? 'Copied. Paste it into your chat.' : "Couldn't copy. Select the text and copy it instead.");
+  $('#copyRewrite').addEventListener('click', () => { void copyOptimized(); });
+  $('#copyBarBtn').addEventListener('click', () => { void copyOptimized(); });
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((entries) => {
+      copyInView = entries.some((e) => e.isIntersecting);
+      updateCopyBar();
+    }).observe($('#copyRewrite'));
+  }
+  window.matchMedia('(min-width: 1024px)').addEventListener('change', updateCopyBar);
+  $('#peStart').addEventListener('click', () => {
+    $('#playground').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    ta.focus();
   });
+  $('#peDemo').addEventListener('click', () => { addEntries(seedDemo()); toast('Demo week loaded. It is labeled "demo" and can be cleared.'); });
+  $$('[data-goto]').forEach((b) => b.addEventListener('click', () => {
+    document.getElementById(b.dataset.goto ?? '')?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }));
   $('#headerToday').addEventListener('click', () => showToday());
   $('#sampleBtn').addEventListener('click', () => { ta.value = SAMPLES[S.sample % SAMPLES.length] ?? ''; S.sample++; renderLive(); });
   $$('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode === 'extension' ? 'extension' : 'playground')));

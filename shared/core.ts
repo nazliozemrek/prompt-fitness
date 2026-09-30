@@ -585,3 +585,45 @@ export const digitsFor = (n: number): number => (n === 0 ? 0 : n >= 100 ? 0 : n 
 export const fmtAuto = (n: number): string => fmtN(n, digitsFor(Math.abs(n)));
 export const fmtMl = (ml: number): string => fmtN(ml, ml === 0 ? 0 : ml < 1 ? 2 : ml < 10 ? 1 : 0);
 export const fmtWater = (L: number): string => (L < 1 ? `${fmtMl(L * 1000)} mL` : `${fmtN(L, 2)} L`);
+
+/* ------------------------------------------------------------------ */
+/* Honest display of modeled numbers                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Footprints are modeled, not measured, so they're shown as a range around the central estimate:
+ * half to double. Published per-prompt figures differ by more than that (Google reports ~0.26 mL
+ * on-site water for a median Gemini text prompt; off-site water for electricity multiplies it), so
+ * the range is a reminder of uncertainty, not a confidence interval.
+ */
+export const RANGE = Object.freeze({ LOW: 0.5, HIGH: 2 });
+
+/** Rounds to what the estimate can justify: whole numbers from 1 up (2 significant digits from 10), 1 significant digit below 1. */
+export function roundHonest(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (v >= 10) return Number(v.toPrecision(2));
+  if (v >= 1) return Math.round(v);
+  return Number(v.toPrecision(1));
+}
+
+const fmtHonest = (v: number): string => {
+  const r = roundHonest(v);
+  return r >= 1000 ? fmtN(r) : String(r);
+};
+
+/** "~4–18 mL" for a central estimate (unit already applied), or "" when there's nothing to show. */
+export function fmtRange(central: number, unit: string): string {
+  if (!Number.isFinite(central) || central <= 0) return '';
+  const lo = fmtHonest(central * RANGE.LOW), hi = fmtHonest(central * RANGE.HIGH);
+  return lo === hi ? `~${hi} ${unit}` : `~${lo}–${hi} ${unit}`;
+}
+
+/** Water range with a sensible unit: mL below a litre, L above. */
+export const fmtWaterRange = (L: number): string =>
+  L * RANGE.HIGH < 1 ? fmtRange(L * 1000, 'mL') : fmtRange(L, 'L');
+
+/** Single approximate value for tight spaces, e.g. "~9 mL". */
+export const fmtWaterApprox = (L: number): string => {
+  if (!Number.isFinite(L) || L <= 0) return '–';
+  return L < 1 ? `~${fmtHonest(L * 1000)} mL` : `~${fmtHonest(L)} L`;
+};

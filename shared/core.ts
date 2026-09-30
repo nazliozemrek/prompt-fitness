@@ -115,6 +115,8 @@ export interface LogEntry {
   f: number | null;
   src: EntrySource;
   demo?: 1;
+  /** 1 when the optimized version was used (copied or applied) for this prompt. */
+  opt?: 1;
 }
 
 const SOURCES: readonly EntrySource[] = ['playground', 'extension', 'inapp', 'usage', 'share'];
@@ -123,7 +125,7 @@ const SOURCES: readonly EntrySource[] = ['playground', 'extension', 'inapp', 'us
 export function sanitizeEntry(raw: unknown): LogEntry | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const e = raw as Record<string, unknown>;
-  const allowed = new Set(['t', 'm', 'i', 'o', 's', 'f', 'src', 'demo']);
+  const allowed = new Set(['t', 'm', 'i', 'o', 's', 'f', 'src', 'demo', 'opt']);
   if (Object.keys(e).some((k) => !allowed.has(k))) return null;
   const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= C.MAX_TOKENS;
   if (typeof e.t !== 'number' || !Number.isFinite(e.t) || e.t <= 0) return null;
@@ -136,6 +138,7 @@ export function sanitizeEntry(raw: unknown): LogEntry | null {
   if (!src) return null;
   const out: LogEntry = { t: Math.round(e.t), m: e.m, i: e.i, o: e.o, s: s === null ? null : Math.round(s as number), f: f as number | null, src };
   if (e.demo === 1) out.demo = 1;
+  if (e.opt === 1) out.opt = 1;
   return out;
 }
 
@@ -273,7 +276,7 @@ export interface OutputEstimate {
 
 export function estimateOutput(text: string, pref: LengthPref, promptTok: number, wc: number): OutputEstimate {
   const t = text.toLowerCase();
-  const hasFormatCtl = /\b(bullet(?:ed)?|bullet points?|table|json|yaml|csv|numbered list|markdown|headings?|one[- ]liner|code only|no explanation)\b/.test(t);
+  const hasFormatCtl = /\b(bullet(?:ed|s)?|bullet points?|table|json|yaml|csv|numbered list|markdown|headings?|one[- ]liner|code only|no explanation)\b/.test(t);
   let visible = 350, why = 'typical answer', hasLengthCtl = false;
   let m: RegExpMatchArray | null;
 
@@ -287,7 +290,7 @@ export function estimateOutput(text: string, pref: LengthPref, promptTok: number
   const NUM = '(\\d{1,4}|one|two|three|four|five|six|seven|eight|nine|ten)';
   if ((m = t.match(new RegExp('\\b' + NUM + '\\s*words?\\b')))) {
     visible = Math.round(toNum(m[1]) * 1.35) + 10; hasLengthCtl = true; why = 'word limit';
-  } else if ((m = t.match(new RegExp('\\b' + NUM + '\\s*(?:short\\s+|key\\s+|main\\s+)?(bullets?|bullet points?|points?|items?|tips?|steps?|examples?|ideas?|reasons?)\\b')))) {
+  } else if ((m = t.match(new RegExp('\\b' + NUM + '\\s*(?:short\\s+|key\\s+|main\\s+)?(bullets?|bullet points?|points?|items?|tips?|steps?|examples?|ideas?|reasons?|options?|differences?|rows?)\\b')))) {
     visible = toNum(m[1]) * 35 + 20; hasLengthCtl = true; why = 'item count';
   } else if ((m = t.match(new RegExp('\\b' + NUM + '\\s*(sentences?|lines?|paragraphs?)\\b')))) {
     visible = toNum(m[1]) * (/paragraph/.test(m[2] ?? '') ? 110 : 25) + 10; hasLengthCtl = true; why = 'sentence limit';
@@ -380,10 +383,14 @@ export function analyze(text: string, model: Model, pref: LengthPref = 'auto', h
 
   // Specificity: does the request say who it's for, why, and within what limits? A direct factual
   // question ("Why does X happen?") is specific enough; a request phrased as a question isn't.
-  const content = prose.replace(REPLY_INSTRUCTION_RE, ' ').replace(LENGTH_PHRASE_RE, ' ');
+  const content = prose.replace(ADDED_HINT_RE, ' ').replace(REPLY_INSTRUCTION_RE, ' ').replace(LENGTH_PHRASE_RE, ' ');
   const contentWc = (content.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length;
   const spec: SpecSignals = { audience: AUDIENCE_RE.test(content), goal: GOAL_RE.test(content), constraints: CONSTRAINT_RE.test(content) };
-  const factualQuestion = QUESTION_RE.test(prose) && !REQUEST_RE.test(prose) && wc <= 20;
+  // Judged on the user's own words (added endings removed). Questions ending in "this/that/it"
+  // ("How can I do this?") don't qualify: they leave out what the question is about.
+  const isQuestion = QUESTION_RE.test(content.trim());
+  const vagueObject = /\b(this|that|it|these|those|them)\s*\?\s*$/i.test(content.trim());
+  const factualQuestion = isQuestion && !REQUEST_RE.test(content) && !vagueObject && contentWc >= 4 && contentWc <= 20;
   const signals = Number(spec.audience) + Number(spec.goal) + Number(spec.constraints);
   let specificity = wc < 6 && !hasCode ? 30 : Math.min(100, 40 + 20 * signals + (contentWc >= 12 ? 10 : 0));
   if (factualQuestion) specificity = Math.max(specificity, 85);
@@ -392,7 +399,7 @@ export function analyze(text: string, model: Model, pref: LengthPref = 'auto', h
   const sub: SubScores = {
     conciseness: Math.round(clamp(100 - fillerShare * 400)),
     focus: Math.round(clamp(100 - rep.ratio * 250 - rep.dups * 20)),
-    clarity: wc < 3 ? (hasCode ? 50 : 20) : wc < 6 ? 55 : TASK_RE.test(prose) || QUESTION_RE.test(prose) || wc >= 12 ? 100 : 75,
+    clarity: wc < 3 ? (hasCode ? 50 : 20) : wc < 6 ? 55 : TASK_RE.test(prose) || isQuestion || wc >= 12 ? 100 : 75,
     specificity,
     control: out.hasLengthCtl && out.hasFormatCtl ? 100 : out.hasLengthCtl || out.hasFormatCtl ? 85 : 45,
   };
@@ -575,14 +582,52 @@ export interface Rewrite {
 }
 
 const LEADING_REQUEST_RE = /^\s*(?:(?:could|can|would) you|i was (?:just )?wondering if|would it be possible)/i;
-const LENGTH_HINTS: ReadonlyArray<[RegExp, string]> = [
-  [/^code request/, 'Reply with just the code and brief comments.'],
-  [/detailed$/, 'Keep it under 800 words, with headings.'],
-  [/^long-form writing/, 'Keep it under 500 words.'],
-  [/^summary/, 'Use 3 bullet points.'],
-  [/^explanation/, 'Answer in under 120 words.'],
-  [/^quick question/, 'Answer in one or two sentences.'],
-];
+/**
+ * Reply-length endings suggestRewrite can add, by kind of request. Several phrasings per kind keep
+ * suggestions from feeling canned; each one must count as reply control (see tests).
+ */
+type HintKind = 'codeExplain' | 'code' | 'detailed' | 'longForm' | 'summary' | 'quick' | 'howTo' | 'compare' | 'ideas' | 'message' | 'explain' | 'default';
+export const REPLY_HINTS: Readonly<Record<HintKind, readonly string[]>> = Object.freeze({
+  codeExplain: ['Keep the explanation under 100 words.', 'After the code, explain it in 3 short bullet points.', 'Add a short explanation of 2–3 sentences.'],
+  code:        ['Reply with just the code and brief comments.', 'Return only the code, with short comments.', 'Give just the code, then one line on how to run it.'],
+  detailed:    ['Keep it under 800 words, with headings.', 'Use headings and keep it under 800 words.', 'Aim for about 700 words, in short sections.'],
+  longForm:    ['Keep it under 500 words.', 'Aim for about 400 words.', 'Keep it to 3 short paragraphs.'],
+  summary:     ['Use 3 bullet points.', 'Summarize in 2 sentences.', 'Give a TL;DR in 3 bullets.'],
+  quick:       ['Answer in one or two sentences.', 'Answer in one sentence.', 'Answer in 2 sentences max.'],
+  howTo:       ['Answer in 5 steps or fewer.', 'List the key steps, one line each.', 'Give up to 6 short steps.'],
+  compare:     ['Compare them in a short table.', 'Give the 3 key differences as bullets.', 'Use a short table with 4 rows at most.'],
+  ideas:       ['Give 5 ideas, one line each.', 'List 5 options with a one-line reason each.', 'Give me 5 bullet points.'],
+  message:     ['Keep it under 120 words.', 'Keep it to 4–5 sentences.', 'Make it short: 5 sentences max.'],
+  explain:     ['Answer in under 120 words.', 'Explain in 4 short sentences.', 'Keep it under 100 words, with one example.'],
+  default:     ['Keep the answer under 150 words.', 'Answer in under 150 words, key point first.', 'Keep it short: 5 bullet points max.'],
+});
+
+/** Every ending suggestRewrite may add, so analyze() can tell them apart from the user's own details. */
+const ADDED_HINT_RE = new RegExp(
+  Object.values(REPLY_HINTS).flat().map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+
+function hintKind(raw: string, why: string): HintKind {
+  const t = raw.toLowerCase();
+  if (/^code request/.test(why)) return /\b(explain|why|how it works|walk me through)\b/.test(t) ? 'codeExplain' : 'code';
+  if (/detailed$/.test(why)) return 'detailed';
+  if (/^long-form writing/.test(why)) return 'longForm';
+  if (/^summary/.test(why)) return 'summary';
+  if (/^quick question/.test(why)) return 'quick';
+  if (/\b(compare|comparison|versus|vs\.?|difference between|pros and cons)\b/.test(t)) return 'compare';
+  if (/\bhow (can|do|should|would|could) i\b|\bhow to\b|\bsteps to\b/.test(t)) return 'howTo';
+  if (/\b(ideas?|suggest|suggestions|tips|options|recommend)\b/.test(t)) return 'ideas';
+  if (/\b(e-?mail|message|reply to|text to|note to)\b/.test(t)) return 'message';
+  if (/^explanation/.test(why)) return 'explain';
+  return 'default';
+}
+
+/** Stable choice: the same request always gets the same phrasing, so suggestions don't flicker while typing. */
+function pickStable<T>(options: readonly T[], seed: string): T {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return options[(h >>> 0) % options.length] as T;
+}
+
 
 const wordSet = (s: string): Set<string> => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []));
 
@@ -639,10 +684,9 @@ export function suggestRewrite(text: string, a: Analysis, pref: LengthPref = 'au
   if (removedSentences) changes.push(`Dropped ${removedSentences} sentence${removedSentences === 1 ? '' : 's'} that asked nothing (like "thanks in advance").`);
 
   if (!a.out.hasLengthCtl && !a.out.hasFormatCtl && pref === 'auto' && a.out.visible > 200) {
-    const asksToExplain = /\b(explain|why|how it works|walk me through)\b/i.test(raw);
-    const hint = /^code request/.test(a.out.why) && asksToExplain
-      ? 'Keep the explanation under 100 words.'
-      : LENGTH_HINTS.find(([re]) => re.test(a.out.why))?.[1] ?? 'Keep the answer under 150 words.';
+    // Seed on the topic words (3rd–6th), not the opening verb, so different requests get different phrasings.
+    const seed = (result.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).slice(2, 6).join(' ');
+    const hint = pickStable(REPLY_HINTS[hintKind(raw, a.out.why)], seed);
     result = `${result}${a.hasCode ? '\n\n' : ' '}${hint}`;
     changes.push(`Asked for a length ("${hint}") so the reply doesn't run long.`);
   }
@@ -746,3 +790,93 @@ export const fmtWaterApprox = (L: number): string => {
   if (!Number.isFinite(L) || L <= 0) return '–';
   return L < 1 ? `~${fmtHonest(L * 1000)} mL` : `~${fmtHonest(L)} L`;
 };
+
+/* ------------------------------------------------------------------ */
+/* Habits: lifetime counters, streaks and milestones                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lifetime counters (numbers only). The log keeps 30 days, so streaks and milestones are counted
+ * here as prompts are tracked. Demo entries never count.
+ */
+export interface Lifetime {
+  tracked: number;
+  optimized: number;
+  rightSized: number;
+  analyzed: number;
+  /** Start of the last day with a tracked prompt (local midnight, ms), 0 if none. */
+  streakLast: number;
+  streakCount: number;
+  streakBest: number;
+}
+
+export const EMPTY_LIFETIME: Lifetime = Object.freeze({
+  tracked: 0, optimized: 0, rightSized: 0, analyzed: 0, streakLast: 0, streakCount: 0, streakBest: 0,
+});
+
+const count = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e9 ? v : 0);
+
+export function sanitizeLifetime(raw: unknown): Lifetime {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const last = typeof r.streakLast === 'number' && Number.isFinite(r.streakLast) && r.streakLast >= 0 ? r.streakLast : 0;
+  return {
+    tracked: count(r.tracked), optimized: count(r.optimized), rightSized: count(r.rightSized), analyzed: count(r.analyzed),
+    streakLast: last, streakCount: count(r.streakCount), streakBest: count(r.streakBest),
+  };
+}
+
+const DAY_MS = 864e5;
+/** Local-calendar day difference (DST-safe, since both sides are local midnights). */
+const daysBetween = (a: number, b: number): number => Math.round((dayStart(b) - dayStart(a)) / DAY_MS);
+
+/** Adds newly tracked entries (non-demo) to the lifetime counters and advances the streak. */
+export function recordEntries(l: Lifetime, entries: readonly LogEntry[]): Lifetime {
+  const out = { ...l };
+  for (const e of [...entries].sort((x, y) => x.t - y.t)) {
+    if (e.demo) continue;
+    out.tracked++;
+    out.analyzed++;
+    if (e.opt) out.optimized++;
+    if (e.f === 1) out.rightSized++;
+    const day = dayStart(e.t);
+    if (!out.streakLast) out.streakCount = 1;
+    else {
+      const gap = daysBetween(out.streakLast, day);
+      if (gap === 1) out.streakCount++;
+      else if (gap > 1) out.streakCount = 1;
+      // gap 0: same day; gap < 0: an older entry arriving late, ignore for the streak
+    }
+    if (day >= out.streakLast) out.streakLast = day;
+    out.streakBest = Math.max(out.streakBest, out.streakCount);
+  }
+  return out;
+}
+
+/** A prompt was analyzed and its optimized version copied, without being added to stats. */
+export const recordAnalyzed = (l: Lifetime): Lifetime => ({ ...l, analyzed: l.analyzed + 1 });
+
+/** Current streak: alive through today and yesterday (you still have today to keep it going). */
+export function currentStreak(l: Lifetime, now: number = Date.now()): number {
+  if (!l.streakLast) return 0;
+  return daysBetween(l.streakLast, now) <= 1 ? l.streakCount : 0;
+}
+
+/** One-time start for people who already have history: rebuild counters from the stored log. */
+export const seedLifetime = (log: readonly LogEntry[]): Lifetime => recordEntries(EMPTY_LIFETIME, log);
+
+export interface Milestone { id: string; title: string; goal: number; desc: string; value: number; earned: boolean; }
+
+const MILESTONES: ReadonlyArray<{ id: string; title: string; goal: number; desc: string; metric: (l: Lifetime) => number }> = [
+  { id: 'runner',  title: 'Prompt Runner',  goal: 10,  desc: 'Use 10 optimized prompts',          metric: (l) => l.optimized },
+  { id: 'trainer', title: 'Token Trainer',  goal: 50,  desc: 'Analyze 50 prompts',                metric: (l) => l.analyzed },
+  { id: 'master',  title: 'Model Master',   goal: 20,  desc: '20 prompts on a right-sized model', metric: (l) => l.rightSized },
+  { id: 'eco',     title: 'Eco AI',         goal: 100, desc: 'Track 100 prompts',                 metric: (l) => l.tracked },
+  { id: 'week',    title: 'Efficient Week', goal: 7,   desc: 'Track prompts 7 days in a row',     metric: (l) => l.streakBest },
+];
+
+export function milestones(l: Lifetime): Milestone[] {
+  return MILESTONES.map(({ metric, ...m }) => {
+    const value = Math.min(m.goal, metric(l));
+    return { ...m, value, earned: value >= m.goal };
+  });
+}

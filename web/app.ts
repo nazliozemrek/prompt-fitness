@@ -5,19 +5,21 @@
 import Chart from 'chart.js/auto';
 import {
   createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe,
-  CircleCheck, MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
+  Award, BadgeCheck, CircleCheck, Flame, Gauge, MessageSquare, MessageSquareShare, Plus, Scale, Share, TextSelect, Trophy,
+  WandSparkles,
   KeyRound, Leaf, Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors,
   Send, Settings2, Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 } from 'lucide';
 import {
   C, CLASS_META, MODELS, analyze, buildTips, compute, dayStart, ecoFactors, ecoFitness, fmtAuto, fmtMl, fmtN, fmtWater,
-  missingDetail, recommendModel,
+  missingDetail, recommendModel, EMPTY_LIFETIME, currentStreak, milestones, recordAnalyzed, recordEntries,
+  type Lifetime,
   explainScores, fmtRange, fmtWaterApprox, fmtWaterRange, getModel, guessModel, isModelId, parseUsageJson, pruneLog,
   roundHonest, suggestRewrite, summarize,
   type Analysis, type EntrySource, type LengthPref, type LogEntry, type Model, type ModelId,
 } from '../shared/core';
 import {
-  BUDGET_OPTIONS, eraseAllLocalData, flushLog, loadBudget, loadLog, saveBudget, saveLog,
+  BUDGET_OPTIONS, eraseAllLocalData, flushLog, loadBudget, loadLifetime, loadLog, saveBudget, saveLifetime, saveLog,
 } from './storage';
 import {
   currentPlatform, drainExtensionEntries, initShareTarget, onAppPause, onAppResume, onInAppBrowserClosed, onInAppEntry,
@@ -26,7 +28,8 @@ import {
 
 const ICONS = {
   BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe, KeyRound, Leaf,
-  CircleCheck, MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
+  Award, BadgeCheck, CircleCheck, Flame, Gauge, MessageSquare, MessageSquareShare, Plus, Scale, Share, TextSelect, Trophy,
+  WandSparkles,
   Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors, Send, Settings2,
   Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 };
@@ -55,14 +58,15 @@ interface State {
   budget: number;
   log: LogEntry[];
   analysis: Analysis | null;
-  view: 'week' | 'models';
+  view: 'week' | 'month' | 'models';
+  lifetime: Lifetime;
   sample: number;
   pendingSource: EntrySource | null;
 }
 
 const S: State = {
   modelId: 'gpt4o', pref: 'auto', mode: 'playground', history: 0, budget: 1,
-  log: [], analysis: null, view: 'week', sample: 0, pendingSource: null,
+  log: [], analysis: null, view: 'week', sample: 0, pendingSource: null, lifetime: EMPTY_LIFETIME,
 };
 
 /* ---------------- Animation ---------------- */
@@ -127,8 +131,13 @@ function renderSubScores(a: Analysis | null): void {
   }
 }
 
-/** The suggested rewrite is kept only in this card (DOM), never stored. */
+/** The suggested rewrite is kept only in this card (DOM) and in memory, never stored. */
 let rewriteText = '';
+let rewriteAnalysis: Analysis | null = null;
+/** In-memory only: which prompt the optimized version was copied for / applied from. */
+let copiedFor: string | null = null;
+let copiedAnalysis: Analysis | null = null;
+let appliedRewrite: string | null = null;
 
 function renderRewrite(a: Analysis | null, model: Model): void {
   const card = $('#rewriteCard');
@@ -137,9 +146,10 @@ function renderRewrite(a: Analysis | null, model: Model): void {
   const b = r ? analyze(r.text, model, S.pref, S.history) : null;
   const show = Boolean(a && r && b && b.score >= a.score);
   $('#leanNote').hidden = !(a && !show && a.score >= 85);
-  if (!show || !a || !r || !b) { card.hidden = true; rewriteText = ''; updateCopyBar(); return; }
+  if (!show || !a || !r || !b) { card.hidden = true; rewriteText = ''; rewriteAnalysis = null; updateCopyBar(); return; }
   if (rewriteText !== r.text) resetCopyButtons();
   rewriteText = r.text;
+  rewriteAnalysis = b;
   const before = compute(model, a.inputTok, a.outputTok).waterL;
   const after = compute(model, b.inputTok, b.outputTok).waterL;
   const less = before > 0 ? Math.round((1 - after / before) * 100) : 0;
@@ -186,6 +196,15 @@ async function copyOptimized(): Promise<void> {
   if (!rewriteText) return;
   if (await copyText(rewriteText)) {
     setCopyLabel('Copied ✓', true);
+    const prompt = $<HTMLTextAreaElement>('#prompt').value;
+    if (copiedFor !== prompt) {
+      // Counts toward "Token Trainer" once per prompt; undone if the same prompt is then added to stats.
+      S.lifetime = recordAnalyzed(S.lifetime);
+      void saveLifetime(S.lifetime);
+      renderMilestones();
+    }
+    copiedFor = prompt;
+    copiedAnalysis = rewriteAnalysis;
     void tapFeedback();
     window.clearTimeout(copyResetTimer);
     copyResetTimer = window.setTimeout(resetCopyButtons, 2200);
@@ -323,11 +342,22 @@ function renderToday(): void {
     : `${fmtWater(S.budget - sum.waterL)} left, about ${fmtN(Math.floor(((S.budget - sum.waterL) * 1000) / 20))} typical prompts`;
   $$('#budgetSeg [data-budget]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.budget) === S.budget)));
 
-  // Everyday equivalents: whole or one-digit values only, "<0.1" when tiny, "–" when nothing tracked.
-  const eq = (v: number): string => (v <= 0 ? '–' : v < 0.1 ? '<0.1' : `~${roundHonest(v)}`);
-  $('#eqBottles').textContent = eq(sum.waterL / C.BOTTLE_L);
-  $('#eqPhones').textContent = eq(sum.kWh / C.PHONE_KWH);
-  $('#eqFlush').textContent = eq(sum.waterL / C.FLUSH_L);
+  const streak = currentStreak(S.lifetime);
+  if (streak >= 2) head.textContent = head.textContent.replace(' →', ` · ${streak}-day streak →`);
+  const optimizedToday = today.filter((e) => e.opt).length;
+  const tiles: [string, string, string][] = [
+    ['flame', 'Streak', streak ? `${streak} day${streak === 1 ? '' : 's'}` : 'Start today'],
+    ['wand-sparkles', 'Optimized', `${optimizedToday} of ${sum.count}`],
+    ['gauge', 'Avg efficiency', sum.avgScore === null ? '–' : `${Math.round(sum.avgScore)}%`],
+    ['scale', 'Model sizing', sum.rightSized === null ? '–' : `${Math.round(sum.rightSized)}% right-sized`],
+    ['droplet', 'Est. water', sum.waterL > 0 ? fmtWaterRange(sum.waterL) : '–'],
+    ['trophy', 'Best streak', S.lifetime.streakBest ? `${S.lifetime.streakBest} day${S.lifetime.streakBest === 1 ? '' : 's'}` : '–'],
+  ];
+  $('#dailyStats').innerHTML = tiles.map(([icon, label, value]) => `<div class="mini">
+      <dt class="text-[11px] muted flex items-center gap-1.5"><i data-lucide="${icon}" class="w-3.5 h-3.5 text-mint"></i>${esc(label)}</dt>
+      <dd class="mt-1 text-sm font-medium text-slate-100">${esc(value)}</dd>
+    </div>`).join('');
+  renderIcons();
 
   const factors = ecoFactors(sum, S.budget);
   const fitness = ecoFitness(sum, S.budget);
@@ -357,6 +387,21 @@ function renderToday(): void {
       <div class="subbar mt-1"><span style="width:${f.value}%;background:${scoreColor(f.value)}"></span></div>
       <p class="mt-1 text-[11px] muted leading-snug">${esc(f.note)}</p>
     </li>`).join('');
+}
+
+/* ---------------- Milestones ---------------- */
+
+function renderMilestones(): void {
+  $('#mileList').innerHTML = milestones(S.lifetime).map((m) => `<li class="flex items-center gap-3">
+      <span class="h-9 w-9 shrink-0 grid place-items-center rounded-xl ${m.earned ? 'bg-mint/15 text-mint' : 'bg-white/5 text-slate-500'}"><i data-lucide="${m.earned ? 'badge-check' : 'target'}" class="w-4 h-4"></i></span>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm ${m.earned ? 'text-white' : 'text-slate-300'}">${esc(m.title)} ${m.earned ? '<span class="text-[11px] text-mint">Earned ✓</span>' : ''}</p>
+        <p class="text-[11px] muted">${esc(m.desc)}</p>
+        <div class="subbar mt-1.5" role="progressbar" aria-label="${esc(m.title)} progress" aria-valuemin="0" aria-valuemax="${m.goal}" aria-valuenow="${m.value}"><span style="width:${(m.value / m.goal) * 100}%;background:${m.earned ? '#4ef0a8' : '#3dd8f5'}"></span></div>
+      </div>
+      <span class="font-mono text-xs text-slate-300 whitespace-nowrap">${m.value}/${m.goal}</span>
+    </li>`).join('');
+  renderIcons();
 }
 
 /* ---------------- Recent activity ---------------- */
@@ -461,11 +506,14 @@ function initCharts(): void {
 function updateWeekChart(): void {
   if (!weekChart) return;
   const labels: string[] = [], water: number[] = [], eff: (number | null)[] = [];
-  for (let d = 6; d >= 0; d--) {
+  const days = S.view === 'month' ? 30 : 7;
+  for (let d = days - 1; d >= 0; d--) {
     const s = new Date(); s.setHours(0, 0, 0, 0); s.setDate(s.getDate() - d);
-    const e0 = s.getTime(), e1 = e0 + 864e5;
+    const e0 = s.getTime(), e1 = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 1).getTime();
     const sum = summarize(S.log.filter((e) => e.t >= e0 && e.t < e1));
-    labels.push(d === 0 ? 'Today' : s.toLocaleDateString('en-US', { weekday: 'short' }));
+    labels.push(d === 0 ? 'Today' : days === 7
+      ? s.toLocaleDateString('en-US', { weekday: 'short' })
+      : s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     water.push(sum.waterL);
     eff.push(sum.avgScore);
   }
@@ -506,10 +554,16 @@ function updateModelChart(): void {
 function setView(v: State['view']): void {
   S.view = v;
   $$('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
-  $('#weekWrap').classList.toggle('invisible', v !== 'week');
+  $('#weekWrap').classList.toggle('invisible', v === 'models');
   $('#modelWrap').classList.toggle('invisible', v !== 'models');
-  if (v === 'week') {
-    $('#chartSub').textContent = 'Water per day against your budget, with average prompt efficiency.';
+  // Each view answers one question.
+  $('#chartSub').textContent = v === 'week'
+    ? 'Are you staying within your daily goal? Estimated water per day, with average prompt efficiency.'
+    : v === 'month'
+      ? 'Is your prompting improving? 30 days of average efficiency and estimated water.'
+      : 'Which model fits this prompt with the least water? Estimated water per request.';
+  if (v !== 'models') {
+    updateWeekChart();
     weekChart?.resize();
   } else {
     modelChart?.resize();
@@ -519,7 +573,7 @@ function setView(v: State['view']): void {
 
 /* ---------------- Actions ---------------- */
 
-function refreshAll(): void { renderToday(); renderLog(); updateWeekChart(); }
+function refreshAll(): void { renderToday(); renderLog(); renderMilestones(); updateWeekChart(); }
 
 /** Scrolls to the Today card and briefly highlights it. */
 function showToday(): void {
@@ -533,23 +587,37 @@ function addEntries(entries: LogEntry[]): void {
   if (!entries.length) return;
   S.log = pruneLog([...S.log, ...entries]);
   saveLog(S.log);
+  const earnedBefore = new Set(milestones(S.lifetime).filter((m) => m.earned).map((m) => m.id));
+  S.lifetime = recordEntries(S.lifetime, entries);
+  void saveLifetime(S.lifetime);
   refreshAll();
+  const fresh = milestones(S.lifetime).filter((m) => m.earned && !earnedBefore.has(m.id));
+  if (fresh[0]) window.setTimeout(() => toast(`Milestone earned: ${fresh[0]!.title} ✓`), 2800);
 }
 
 function logCurrentPrompt(): void {
-  const a = S.analysis;
-  if (!a) { showPromptMsg('Paste a prompt first. Then you can add it to your stats.'); $('#prompt').focus(); return; }
+  const text = $<HTMLTextAreaElement>('#prompt').value;
+  if (!S.analysis) { showPromptMsg('Paste a prompt first. Then you can add it to your stats.'); $('#prompt').focus(); return; }
+  // If the optimized version was copied, that's what was sent: record its numbers.
+  const usedCopy = copiedFor === text && copiedAnalysis !== null;
+  const a = usedCopy && copiedAnalysis ? copiedAnalysis : S.analysis;
+  const opt = usedCopy || (appliedRewrite !== null && text === appliedRewrite);
   const model = getModel(S.modelId);
   const f = compute(model, a.inputTok, a.outputTok);
   const src: EntrySource = S.pendingSource ?? (S.mode === 'extension' ? 'extension' : 'playground');
-  addEntries([{ t: Date.now(), m: model.id, i: a.inputTok, o: a.outputTok, s: a.score, f: a.fit, src }]);
+  const entry: LogEntry = { t: Date.now(), m: model.id, i: a.inputTok, o: a.outputTok, s: a.score, f: a.fit, src };
+  if (opt) entry.opt = 1;
+  // The copy already counted this prompt as analyzed; adding it counts again, so undo the copy's count first.
+  if (usedCopy) S.lifetime = { ...S.lifetime, analyzed: Math.max(0, S.lifetime.analyzed - 1) };
+  addEntries([entry]);
+  copiedFor = null; copiedAnalysis = null; appliedRewrite = null;
   S.pendingSource = null;
   S.history = Math.min(C.MAX_TOKENS, S.history + a.promptTok + a.out.visible);
   $<HTMLTextAreaElement>('#prompt').value = '';
   renderLive();
   void tapFeedback();
   const todayL = summarize(S.log.filter((e) => e.t >= dayStart())).waterL;
-  toast(`Added to your stats (${fmtWaterApprox(f.waterL)} estimated). Today: ${fmtWaterApprox(todayL)}.`);
+  toast(`Added${opt ? ' the optimized version' : ''} to your stats (${fmtWaterApprox(f.waterL)} est.). Today: ${fmtWaterApprox(todayL)}.`);
 }
 
 /** One sample per category, each showing a different lesson (filler, vagueness, unbounded length…). */
@@ -758,10 +826,12 @@ const WHERE_STEPS: Record<string, { heading: string; steps: [string, string][] }
 function renderWhereSteps(platform: string): void {
   const cfg = WHERE_STEPS[platform] ?? WHERE_STEPS.web!;
   $('#whereHeading').textContent = cfg.heading;
-  $('#whereSteps').innerHTML = cfg.steps.map(([icon, text], i) => `<li class="flex items-start gap-3">
+  const html = cfg.steps.map(([icon, text], i) => `<li class="flex items-start gap-3">
       <span class="mt-0.5 h-8 w-8 shrink-0 grid place-items-center rounded-xl bg-mint/10 text-mint"><i data-lucide="${esc(icon)}" class="w-4 h-4"></i></span>
       <p class="text-sm text-slate-200"><span class="font-mono text-mint mr-1">${i + 1}.</span>${esc(text)}</p>
     </li>`).join('');
+  $('#whereSteps').innerHTML = html;
+  $('#connectSteps').innerHTML = html; // same steps in the "Use with ChatGPT & Claude" dialog (web)
 }
 
 /** Clipboard with a fallback for web views that don't expose navigator.clipboard. */
@@ -807,6 +877,7 @@ function wire(): void {
   $('#useRewrite').addEventListener('click', () => {
     if (!rewriteText) return;
     ta.value = rewriteText;
+    appliedRewrite = rewriteText;
     renderLive();
     ta.focus();
     toast('Rewrite applied. Edit it if anything is missing.');
@@ -849,7 +920,10 @@ function wire(): void {
     toast(`Switched to ${getModel(recAltId).name}. Pick it in your AI app too.`);
   });
   $$('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode === 'extension' ? 'extension' : 'playground')));
-  $$('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view === 'models' ? 'models' : 'week')));
+  $$('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    const v = b.dataset.view;
+    setView(v === 'models' || v === 'month' ? v : 'week');
+  }));
   $$('#budgetSeg [data-budget]').forEach((b) => b.addEventListener('click', () => {
     const v = Number(b.dataset.budget);
     if (!(BUDGET_OPTIONS as readonly number[]).includes(v)) return;
@@ -874,6 +948,7 @@ function wire(): void {
     window.clearTimeout(armed);
     disarm();
     S.log = [];
+    S.lifetime = EMPTY_LIFETIME;
     await eraseAllLocalData();
     S.budget = await loadBudget();
     refreshAll();
@@ -891,6 +966,11 @@ function wire(): void {
   const open = (tab: 'A' | 'B') => { selectTab(tab); dlg.showModal(); };
   $('#openConnect').addEventListener('click', () => open('A'));
   $('#whereMore').addEventListener('click', () => open('A'));
+  $('#connectStart').addEventListener('click', () => {
+    dlg.close();
+    $('#playground').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    $<HTMLTextAreaElement>('#prompt').focus();
+  });
   $('#closeConnect').addEventListener('click', () => dlg.close());
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
   $('#tabA').addEventListener('click', () => selectTab('A'));
@@ -941,6 +1021,7 @@ async function init(): Promise<void> {
   const [log, budget] = await Promise.all([loadLog(), loadBudget()]);
   S.log = log ?? [];
   S.budget = budget;
+  S.lifetime = await loadLifetime(S.log);
 
   renderLive();
   refreshAll();

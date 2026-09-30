@@ -9,13 +9,15 @@
  */
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import { pruneLog, sanitizeEntry, type LogEntry } from '../shared/core';
+import { pruneLog, sanitizeEntry, sanitizeLifetime, seedLifetime, type Lifetime, type LogEntry } from '../shared/core';
 
 export const KEYS = Object.freeze({
   log: 'pf.log.v1',
   budget: 'pf.budget.v1',
   seeded: 'pf.seeded.v1',
   migrated: 'pf.migrated.v1',
+  /** Lifetime counters for streaks and milestones (numbers only). */
+  lifetime: 'pf.lifetime.v1',
 });
 
 export interface KV {
@@ -61,7 +63,7 @@ export const kv: KV = isNative() ? nativeKV : webKV;
 async function migrateFromLocalStorage(): Promise<void> {
   if (!isNative()) return;
   if (await kv.get<boolean>(KEYS.migrated, false)) return;
-  for (const key of [KEYS.log, KEYS.budget, KEYS.seeded]) {
+  for (const key of [KEYS.log, KEYS.budget, KEYS.seeded, KEYS.lifetime]) {
     const legacy = await webKV.get<unknown>(key, undefined);
     const existing = await kv.get<unknown>(key, undefined);
     if (legacy !== undefined && existing === undefined) await kv.set(key, legacy);
@@ -104,6 +106,17 @@ export async function flushLog(): Promise<void> {
   await kv.set(KEYS.log, snapshot);
 }
 
+/** Lifetime counters; on first use they're rebuilt from the stored log so existing history counts. */
+export async function loadLifetime(log: readonly LogEntry[]): Promise<Lifetime> {
+  const raw = await kv.get<unknown>(KEYS.lifetime, null);
+  if (raw !== null) return sanitizeLifetime(raw);
+  const seeded = seedLifetime(log);
+  await kv.set(KEYS.lifetime, seeded);
+  return seeded;
+}
+
+export const saveLifetime = (l: Lifetime): Promise<void> => kv.set(KEYS.lifetime, l);
+
 export const BUDGET_OPTIONS = [0.5, 1, 2, 3] as const;
 
 export async function loadBudget(): Promise<number> {
@@ -119,6 +132,6 @@ export const markSeeded = (): Promise<void> => kv.set(KEYS.seeded, true);
 export async function eraseAllLocalData(): Promise<void> {
   clearTimeout(pendingWrite);
   pendingLog = null;
-  await Promise.all([KEYS.log, KEYS.budget].map((k) => kv.remove(k)));
+  await Promise.all([KEYS.log, KEYS.budget, KEYS.lifetime].map((k) => kv.remove(k)));
   await markSeeded(); // don't re-insert demo data after an explicit wipe
 }

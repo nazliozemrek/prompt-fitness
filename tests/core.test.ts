@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   C, MODELS, analyze, buildTips, compute, ecoFactors, ecoFitness, estTokens, explainScores, getModel, guessModel,
-  missingDetail, recommendModel,
+  missingDetail, recommendModel, REPLY_HINTS, EMPTY_LIFETIME, currentStreak, milestones, recordAnalyzed, recordEntries,
+  sanitizeLifetime, seedLifetime,
   fmtRange, fmtWaterApprox, fmtWaterRange, parseUsageJson, pruneLog, roundHonest, sanitizeEntry, suggestRewrite, summarize,
   type LogEntry,
 } from '../shared/core';
@@ -104,6 +105,37 @@ describe('specificity and model sizing', () => {
   });
 });
 
+describe('reply endings', () => {
+  const base = 'Help me plan a trip to Japan.';
+  it('every ending counts as reply control and adds no fake specificity', () => {
+    const spec0 = analyze(base, gpt4o)!.sub.specificity;
+    for (const hint of Object.values(REPLY_HINTS).flat()) {
+      const a = analyze(`${base} ${hint}`, gpt4o)!;
+      expect.soft(a.sub.control, hint).toBeGreaterThanOrEqual(85);
+      expect.soft(a.sub.specificity, hint).toBe(spec0);
+    }
+  });
+  it('fits the kind of request and varies between prompts', () => {
+    const endOf = (p: string) => { const r = suggestRewrite(p, analyze(p, gpt4o)!)!; return r.text.slice(r.text.lastIndexOf('. ') + 2); };
+    expect(REPLY_HINTS.howTo).toContain(endOf('Could you please tell me how can I set up a Python virtual environment on my Mac?'));
+    expect(REPLY_HINTS.compare).toContain(endOf('Can you please compare PostgreSQL and MySQL for a small web app?'));
+    const endings = new Set(['what a REST API is', 'what a closure is in JavaScript', 'what DNS is', 'what inflation is', 'what a hash map is', 'what a vaccine does']
+      .map((x) => endOf(`Could you please explain ${x} and how it works?`)));
+    expect(endings.size).toBeGreaterThan(1);
+  });
+  it('coaches a vague question instead of rewarding it', () => {
+    const a = analyze('How can I do this?', gpt4o)!;
+    expect(a.sub.specificity).toBeLessThanOrEqual(40);
+    expect(missingDetail(a).length).toBeGreaterThan(0);
+    const r = suggestRewrite('How can I do this?', a);
+    if (r) expect(analyze(r.text, gpt4o)!.score).toBeGreaterThanOrEqual(a.score);
+  });
+  it('is stable: the same prompt always gets the same ending', () => {
+    const p = 'Could you please explain what DNS is and how it works?';
+    expect(suggestRewrite(p, analyze(p, gpt4o)!)!.text).toBe(suggestRewrite(p, analyze(p, gpt4o)!)!.text);
+  });
+});
+
 describe('coaching', () => {
   const wordy = "Hi there! I hope you're doing well. Could you please explain to me what a REST API is? "
     + 'Could you please explain what a REST API is and how it works? Thank you so much in advance!';
@@ -111,7 +143,8 @@ describe('coaching', () => {
   it('rewrites a wordy prompt into a shorter, higher-scoring one', () => {
     const a = analyze(wordy, gpt4o)!;
     const r = suggestRewrite(wordy, a)!;
-    expect(r.text).toBe('Explain what a REST API is and how it works. Answer in under 120 words.');
+    expect(r.text.startsWith('Explain what a REST API is and how it works. ')).toBe(true);
+    expect(REPLY_HINTS.explain.some((h) => r.text.endsWith(h))).toBe(true);
     const b = analyze(r.text, gpt4o)!;
     expect(b.score).toBeGreaterThan(a.score);
     expect(compute(gpt4o, b.inputTok, b.outputTok).waterL).toBeLessThan(compute(gpt4o, a.inputTok, a.outputTok).waterL);
@@ -126,9 +159,10 @@ describe('coaching', () => {
   it('keeps "Label: value" detail lines on their own lines', () => {
     const p = 'Can you help me make a workout plan?\nFor: a beginner\nGoal: build muscle\nConstraints: 4 days a week, standard gym';
     const r = suggestRewrite(p, analyze(p, gpt4o)!)!;
-    expect(r.text.split('\n').slice(0, 4)).toEqual([
-      'Help me make a workout plan.', 'For: a beginner.', 'Goal: build muscle.', 'Constraints: 4 days a week, standard gym. Keep the answer under 150 words.',
-    ]);
+    const lines = r.text.split('\n');
+    expect(lines.slice(0, 3)).toEqual(['Help me make a workout plan.', 'For: a beginner.', 'Goal: build muscle.']);
+    expect(lines[3]?.startsWith('Constraints: 4 days a week, standard gym. ')).toBe(true);
+    expect(Object.values(REPLY_HINTS).flat().some((h) => lines[3]?.endsWith(h))).toBe(true);
   });
   it('offers no rewrite for lean or very short prompts', () => {
     const lean = 'Explain REST APIs to a junior developer in 5 bullet points, with one real-world example.';
@@ -207,6 +241,41 @@ describe('log helpers', () => {
     const f = ecoFactors(summarize([e]), 10)!;
     expect(f.find((x) => x.key === 'output')?.value).toBe(0);
     expect(f.find((x) => x.key === 'context')?.value).toBe(0);
+  });
+});
+
+describe('habits', () => {
+  const day = (d: number, h = 12) => { const x = new Date(2026, 8, 10 + d, h); return x.getTime(); };
+  const e = (d: number, extra: Partial<LogEntry> = {}): LogEntry => ({ t: day(d), m: 'gpt4o', i: 100, o: 100, s: 80, f: 1, src: 'playground', ...extra });
+
+  it('counts tracked, optimized and right-sized prompts, never demo data', () => {
+    const l = recordEntries(EMPTY_LIFETIME, [e(0, { opt: 1 }), e(0, { f: 0.5 }), e(0, { demo: 1, opt: 1 })]);
+    expect(l).toMatchObject({ tracked: 2, analyzed: 2, optimized: 1, rightSized: 1 });
+  });
+  it('builds a streak day by day and resets after a missed day', () => {
+    let l = recordEntries(EMPTY_LIFETIME, [e(0), e(0), e(1), e(2)]);
+    expect(l.streakCount).toBe(3);
+    l = recordEntries(l, [e(4)]);
+    expect(l.streakCount).toBe(1);
+    expect(l.streakBest).toBe(3);
+  });
+  it('keeps the streak alive today and yesterday, zero after that', () => {
+    const l = recordEntries(EMPTY_LIFETIME, [e(0), e(1)]);
+    expect(currentStreak(l, day(1))).toBe(2);
+    expect(currentStreak(l, day(2))).toBe(2);
+    expect(currentStreak(l, day(3))).toBe(0);
+  });
+  it('tracks milestone progress and earning', () => {
+    const l = { ...EMPTY_LIFETIME, optimized: 12, analyzed: 3, streakBest: 7 };
+    const m = Object.fromEntries(milestones(l).map((x) => [x.id, x]));
+    expect(m.runner).toMatchObject({ value: 10, earned: true });
+    expect(m.trainer).toMatchObject({ value: 3, earned: false });
+    expect(m.week?.earned).toBe(true);
+    expect(recordAnalyzed(l).analyzed).toBe(4);
+  });
+  it('seeds from existing history and rejects bad stored data', () => {
+    expect(seedLifetime([e(0), e(1, { opt: 1 })])).toMatchObject({ tracked: 2, optimized: 1, streakCount: 2 });
+    expect(sanitizeLifetime({ tracked: -3, optimized: 'x', streakBest: 2.5 })).toEqual(EMPTY_LIFETIME);
   });
 });
 

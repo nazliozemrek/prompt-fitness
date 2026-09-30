@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 npm run build
 npm run check:privacy
 npx cap sync ios
+npm run assets   # app icon + splash from assets/ (ios/ is generated, so regenerate them every time)
 
 APP=ios/App/App
 cp native/ios/App/MainViewController.swift native/ios/App/SharedLogPlugin.swift \

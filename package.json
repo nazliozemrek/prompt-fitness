@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check:privacy": "node scripts/check-privacy.mjs",
-    "assets": "capacitor-assets generate --iconBackgroundColor '#060a10' --iconBackgroundColorDark '#060a10' --splashBackgroundColor '#060a10' --splashBackgroundColorDark '#060a10'",
+    "assets": "capacitor-assets generate --ios --android --iconBackgroundColor '#060a10' --iconBackgroundColorDark '#060a10' --splashBackgroundColor '#060a10' --splashBackgroundColorDark '#060a10'",
     "cap:sync": "npm run build && npm run check:privacy && cap sync",
     "ios:setup": "bash scripts/setup-ios.sh",
     "android:setup": "bash scripts/setup-android.sh",

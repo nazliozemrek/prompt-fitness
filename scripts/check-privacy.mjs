@@ -71,7 +71,18 @@ if (!existsSync(inapp)) {
   if (url) fail('dist/inapp.js', `references external URL ${url[0]}`);
 }
 
-/* 4. Capacitor config: bundled assets only. */
+/* 4. Share extension coaching bundle (JavaScriptCore): no network APIs, no external URLs. */
+const coachJs = join(root, 'build', 'share', 'coach.js');
+if (!existsSync(coachJs)) {
+  fail('build/share/coach.js', 'missing, run `npm run build` first');
+} else {
+  const text = await readFile(coachJs, 'utf8');
+  for (const re of NETWORK_APIS) if (re.test(text)) fail('build/share/coach.js', `uses ${re}`);
+  const url = text.match(EXTERNAL_URL);
+  if (url) fail('build/share/coach.js', `references external URL ${url[0]}`);
+}
+
+/* 5. Capacitor config: bundled assets only. */
 const cap = JSON.parse(await readFile(join(root, 'capacitor.config.json'), 'utf8'));
 if (cap.server?.url) fail('capacitor.config.json', 'server.url must not be set for release builds');
 if (cap.plugins?.CapacitorHttp?.enabled) fail('capacitor.config.json', 'CapacitorHttp must stay disabled');

@@ -265,6 +265,9 @@ export function estimateOutput(text: string, pref: LengthPref, promptTok: number
   return { visible: Math.max(20, visible), why, hasLengthCtl, hasFormatCtl };
 }
 
+/** Splits after sentence punctuation or at line breaks. (No regex lookbehind: it breaks Safari before iOS 16.4.) */
+const splitSentences = (text: string): string[] => text.replace(/([.!?])\s+/g, '$1\n').split(/\n+/);
+
 function repetition(words: readonly string[], sentences: readonly string[]): { ratio: number; dups: number } {
   const w = words.map((x) => x.toLowerCase());
   let rep = 0, total = 0;
@@ -328,7 +331,7 @@ export function analyze(text: string, model: Model, pref: LengthPref = 'auto', h
     found.add(phrase);
   }
   const fillerShare = wc ? fillerWords / wc : 0;
-  const rep = repetition(words, prose.split(/(?<=[.!?])\s+|\n+/));
+  const rep = repetition(words, splitSentences(prose));
   const out = estimateOutput(prose, pref, promptTok, wc);
   const complexity: Complexity = hasCode || wc > 150 || COMPLEX_RE.test(prose) ? 'complex' : wc <= 40 ? 'simple' : 'medium';
   const fit = FIT[complexity][model.cls];
@@ -485,7 +488,7 @@ export function suggestRewrite(text: string, a: Analysis, pref: LengthPref = 'au
   let removedFiller = 0, removedSentences = 0;
 
   const cleanProse = (prose: string): string => {
-    const sentences = prose.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
+    const sentences = splitSentences(prose).map((s) => s.trim()).filter(Boolean);
     const kept: string[] = [];
     for (const s of sentences) {
       const wasRequest = LEADING_REQUEST_RE.test(s);

@@ -39,6 +39,12 @@ if [[ -d "$EXT" ]]; then
   echo "✓ Safari extension resources synced into $EXT/Resources"
 fi
 
+SHARE=ios/App/ShareExtension
+mkdir -p "$SHARE"
+cp native/ios/ShareExtension/ShareViewController.swift native/ios/ShareExtension/Info.plist \
+   native/ios/ShareExtension/PrivacyInfo.xcprivacy build/share/coach.js "$SHARE/"
+echo "✓ Share extension files copied into $SHARE"
+
 if ! ruby -e "require 'xcodeproj'" 2>/dev/null; then
   echo "Installing the xcodeproj gem (user scope)…"
   gem install --user-install xcodeproj

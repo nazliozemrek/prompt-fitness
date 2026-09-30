@@ -56,7 +56,7 @@ extension/
   src/background.ts            Validated storage, badge, Safari → app forwarding
   src/popup.ts, popup.html/css Toolbar popup (Safari iOS shows it as a sheet)
   prototype/                   Earlier vanilla-JS popup with Chart.js (not built or shipped)
-native/ios/                    Swift plugins, in-app browser, App Group store, extension handler, entitlements, privacy manifests
+native/ios/                    Swift plugins, in-app browser, share extension, App Group store, Safari extension handler, entitlements, privacy manifests
 native/android/                Hardened manifest, share-target plugin, backup exclusion rules
 scripts/                       build, privacy gate, iOS/Android setup, Safari converter, icon generator
 assets/                        Icon and splash sources for @capacitor/assets
@@ -121,6 +121,14 @@ How it stays private:
 Limits: Google blocks sign-in inside embedded browsers, so Gemini and "Continue with Google" don't work there; the dashboard points those users to the Safari extension. The browser uses each site's default model (ChatGPT → GPT-4o, Claude → Claude 3.5 Sonnet, Gemini → Gemini 1.5 Pro). Android has no in-app browser, because it would need the INTERNET permission the Android build deliberately removes.
 
 The Safari settings button uses `SFSafariSettings.openExtensionsSettings(forIdentifiers:)` on iOS 26.2+ and falls back to the app's own Settings page with written steps. Private `App-Prefs:` URLs are not used (App Review rejects them).
+
+### Share action: "Improve prompt"
+
+In any app, select a prompt, tap **Share → Prompt Fitness**: the share sheet shows the score, a note per sub-score and a leaner rewrite, with **Copy improved prompt** to paste back into ChatGPT, Claude or Gemini. This is the way to coach prompts written in the chatbots' own apps.
+
+- `native/ios/ShareExtension/` holds the extension (SwiftUI); `npm run ios:setup` copies it and creates the `ShareExtension` target automatically (bundle ID `com.promptfitness.app.ShareExtension`, iOS 15+).
+- The rules come from `shared/share-coach.ts`, built to `build/share/coach.js` and run in JavaScriptCore, so they're identical to the dashboard's. JavaScriptCore has no network APIs, and the privacy gate scans the bundle.
+- The text is analyzed in memory only. Nothing is stored; the only output is what the user copies.
 
 ### 2. Add the Safari extension target (once, in Xcode)
 1. `npx cap open ios`

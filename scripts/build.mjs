@@ -88,7 +88,18 @@ async function buildExtension(flavor) {
   console.log(`✓ build/extension-${flavor}`);
 }
 
+/** Coaching bundle for the iOS share extension, evaluated in JavaScriptCore (see shared/share-coach.ts). */
+async function buildShareCoach() {
+  await build({
+    ...common,
+    entryPoints: [join(root, 'shared/share-coach.ts')],
+    outfile: join(root, 'build/share/coach.js'),
+    target: ['es2020', 'safari15'],
+  });
+}
+
 if (target === 'all' || target === 'web') await buildWeb();
+if (target === 'all') await buildShareCoach();
 if (target === 'all' || target === 'extension') {
   await buildExtension('chrome');
   await buildExtension('safari');

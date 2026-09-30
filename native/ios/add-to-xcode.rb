@@ -51,4 +51,42 @@ else
   puts '… Extension target not found. Create it in Xcode (README, "iOS: add the Safari extension target"), then re-run.'
 end
 
+# Share extension ("Improve prompt"): created here if missing, so no Xcode clicks are needed.
+share_dir = File.join(File.dirname(proj_path), 'ShareExtension')
+if Dir.exist?(share_dir)
+  share = project.targets.find { |t| t.name == 'ShareExtension' }
+  unless share
+    share = project.new_target(:app_extension, 'ShareExtension', :ios, '15.0', nil, :swift)
+    app.add_dependency(share)
+    embed = app.copy_files_build_phases.find { |p| p.symbol_dst_subfolder_spec == :plug_ins } ||
+            app.new_copy_files_build_phase('Embed Foundation Extensions')
+    embed.symbol_dst_subfolder_spec = :plug_ins
+    build_file = embed.add_file_reference(share.product_reference, true)
+    build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+  end
+  share_group = project.main_group['ShareExtension'] || project.main_group.new_group('ShareExtension', 'ShareExtension')
+  add_source(share, file_ref(share_group, 'ShareViewController.swift'))
+  add_resource(share, file_ref(share_group, 'coach.js'))
+  add_resource(share, file_ref(share_group, 'PrivacyInfo.xcprivacy'))
+  file_ref(share_group, 'Info.plist')
+  app_id = app.build_configurations.first.build_settings['PRODUCT_BUNDLE_IDENTIFIER']
+  app_cfg = app.build_configurations.first.build_settings
+  share.build_configurations.each do |c|
+    s = c.build_settings
+    s['PRODUCT_BUNDLE_IDENTIFIER'] = "#{app_id}.ShareExtension"
+    s['PRODUCT_NAME'] = '$(TARGET_NAME)'
+    s['INFOPLIST_FILE'] = 'ShareExtension/Info.plist'
+    s['GENERATE_INFOPLIST_FILE'] = 'NO'
+    s['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    s['TARGETED_DEVICE_FAMILY'] = '1,2'
+    s['SWIFT_VERSION'] = '5.0'
+    s['SKIP_INSTALL'] = 'YES'
+    s['CODE_SIGN_STYLE'] = 'Automatic'
+    s['MARKETING_VERSION'] = app_cfg['MARKETING_VERSION'] || '1.0'
+    s['CURRENT_PROJECT_VERSION'] = app_cfg['CURRENT_PROJECT_VERSION'] || '1'
+    s['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']
+  end
+  puts '✓ ShareExtension target: "Improve prompt" share action, coaching bundle, privacy manifest'
+end
+
 project.save

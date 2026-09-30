@@ -4,7 +4,8 @@
  */
 import Chart from 'chart.js/auto';
 import {
-  createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather, Globe,
+  createIcons, BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe,
+  MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
   KeyRound, Leaf, Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors,
   Send, Settings2, Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 } from 'lucide';
@@ -22,7 +23,8 @@ import {
 } from './native';
 
 const ICONS = {
-  BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Download, Droplet, Feather, Globe, KeyRound, Leaf,
+  BookOpen, Braces, CalendarCheck, ChartNoAxesCombined, ChevronDown, Copy, Download, Droplet, Feather, Globe, KeyRound, Leaf,
+  MessageSquare, MessageSquareShare, Plus, Share, TextSelect, WandSparkles,
   Lightbulb, List, Lock, MessageSquarePlus, PenLine, PlugZap, Puzzle, Repeat, Ruler, Scissors, Send, Settings2,
   Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 };
@@ -171,6 +173,9 @@ function renderLive(): void {
   const model = getModel(S.modelId);
   const a = analyze($<HTMLTextAreaElement>('#prompt').value, model, S.pref, S.history);
   S.analysis = a;
+  // Score and tips only mean something once there's a prompt; hiding them keeps the empty screen short.
+  $('#scoreBlock').hidden = !a;
+  $('#tipsBlock').hidden = !a;
   $('#liveModel').textContent = model.name;
   $('#tHistory').textContent = fmtN(S.history);
 
@@ -182,7 +187,7 @@ function renderLive(): void {
     $('#tOut').textContent = '0';
     $('#effScore').textContent = '–';
     setRing($<SVGCircleElement & HTMLElement>('#effRing'), 0);
-    $('#effVerdict').textContent = 'Start typing to get live feedback.';
+    $('#effVerdict').textContent = 'Paste a prompt to see how clear and lean it is.';
     $('#outWhy').textContent = 'Reply size is estimated from what your prompt asks for.';
     $('#badgeWater').textContent = '0 mL';
     $('#badgeScore').textContent = '–';
@@ -442,7 +447,7 @@ function addEntries(entries: LogEntry[]): void {
 
 function logCurrentPrompt(): void {
   const a = S.analysis;
-  if (!a) { toast('Type a prompt first, then log it.'); $('#prompt').focus(); return; }
+  if (!a) { toast('Paste a prompt first.'); $('#prompt').focus(); return; }
   const model = getModel(S.modelId);
   const f = compute(model, a.inputTok, a.outputTok);
   const src: EntrySource = S.pendingSource ?? (S.mode === 'extension' ? 'extension' : 'playground');
@@ -453,7 +458,7 @@ function logCurrentPrompt(): void {
   renderLive();
   void tapFeedback();
   const todayL = summarize(S.log.filter((e) => e.t >= dayStart())).waterL;
-  toast(`Logged ${fmtMl(f.waterL * 1000)} mL. Today: ${fmtN(todayL, 2)} of ${fmtN(S.budget, 1)} L.`);
+  toast(`Added to your stats: ${fmtMl(f.waterL * 1000)} mL. Today: ${fmtN(todayL, 2)} of ${fmtN(S.budget, 1)} L.`);
 }
 
 const SAMPLES = [
@@ -564,12 +569,69 @@ function configurePlatformCopy(): void {
   const ol = $('#extSteps');
   ol.replaceChildren(...steps.map((s) => { const li = document.createElement('li'); li.textContent = s; return li; }));
   if (platform === 'ios') {
-    $('#tabA').textContent = 'Track your chats';
+    $('#tabA').textContent = 'Your chats';
     $('#extHeading').textContent = 'Or track in Safari with the extension';
   }
   if (platform === 'android') {
-    $('#tabA').textContent = 'Share to score';
-    $('#connectLabel').textContent = 'Add your AI usage';
+    $('#tabA').textContent = 'Share to improve';
+    $('#connectLabel').textContent = 'Use with your AI apps';
+  }
+  renderWhereSteps(platform);
+}
+
+/** "Use it where you chat": the way to reach this platform's AI apps, as three visual steps. */
+const WHERE_STEPS: Record<string, { heading: string; steps: [string, string][] }> = {
+  ios: {
+    heading: 'Use it in ChatGPT & Claude',
+    steps: [
+      ['text-select', 'Select your prompt in ChatGPT, Claude or any app.'],
+      ['share', 'Tap Share, then Prompt Fitness.'],
+      ['copy', 'Copy the improved prompt and paste it back.'],
+    ],
+  },
+  android: {
+    heading: 'Use it in your AI apps',
+    steps: [
+      ['text-select', 'Select your prompt in ChatGPT, Claude or any app.'],
+      ['share', 'Tap Share, then Prompt Fitness.'],
+      ['wand-sparkles', 'It opens here with a tighter version to copy back.'],
+    ],
+  },
+  web: {
+    heading: 'Use it where you chat',
+    steps: [
+      ['puzzle', 'Add the Prompt Fitness extension to Chrome, Firefox or Safari.'],
+      ['message-square', 'Chat as usual on ChatGPT, Claude or Gemini.'],
+      ['sparkles', 'Paste any prompt here to get a tighter version.'],
+    ],
+  },
+};
+
+function renderWhereSteps(platform: string): void {
+  const cfg = WHERE_STEPS[platform] ?? WHERE_STEPS.web!;
+  $('#whereHeading').textContent = cfg.heading;
+  $('#whereSteps').innerHTML = cfg.steps.map(([icon, text], i) => `<li class="flex items-start gap-3">
+      <span class="mt-0.5 h-8 w-8 shrink-0 grid place-items-center rounded-xl bg-mint/10 text-mint"><i data-lucide="${esc(icon)}" class="w-4 h-4"></i></span>
+      <p class="text-sm text-slate-200"><span class="font-mono text-mint mr-1">${i + 1}.</span>${esc(text)}</p>
+    </li>`).join('');
+}
+
+/** Clipboard with a fallback for web views that don't expose navigator.clipboard. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
   }
 }
 
@@ -600,6 +662,10 @@ function wire(): void {
     renderLive();
     ta.focus();
     toast('Rewrite applied. Edit it if anything is missing.');
+  });
+  $('#copyRewrite').addEventListener('click', async () => {
+    if (!rewriteText) return;
+    toast(await copyText(rewriteText) ? 'Copied. Paste it into your chat.' : "Couldn't copy. Select the text and copy it instead.");
   });
   $('#headerToday').addEventListener('click', () => showToday());
   $('#sampleBtn').addEventListener('click', () => { ta.value = SAMPLES[S.sample % SAMPLES.length] ?? ''; S.sample++; renderLive(); });
@@ -645,7 +711,7 @@ function wire(): void {
   };
   const open = (tab: 'A' | 'B') => { selectTab(tab); dlg.showModal(); };
   $('#openConnect').addEventListener('click', () => open('A'));
-  $('#privacyMore').addEventListener('click', () => open('A'));
+  $('#whereMore').addEventListener('click', () => open('A'));
   $('#closeConnect').addEventListener('click', () => dlg.close());
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
   $('#tabA').addEventListener('click', () => selectTab('A'));

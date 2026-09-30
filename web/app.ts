@@ -611,8 +611,12 @@ function wire(): void {
   $$('[data-inapp-site]').forEach((b) => b.addEventListener('click', async () => {
     const site = b.dataset.inappSite as InAppSite;
     void tapFeedback();
-    if (await openInAppBrowser(site)) dlg.close();
-    else toast('The in-app browser is available in the iOS app.');
+    // Shown inside the dialog: a toast would sit behind the modal's top layer.
+    const err = $('#inappError');
+    err.hidden = true;
+    if (await openInAppBrowser(site)) { dlg.close(); return; }
+    err.textContent = "Couldn't open the in-app browser. It needs the latest iOS build (npm run ios:setup).";
+    err.hidden = false;
   }));
   $('#openSafariSettings').addEventListener('click', async () => {
     const hint = $('#safariSettingsHint');

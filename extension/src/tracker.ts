@@ -28,8 +28,9 @@ export interface Adapter {
 const ADAPTERS: readonly Adapter[] = [
   {
     host: 'chatgpt.com',
-    user: ['[data-message-author-role="user"]'],
-    assistant: ['[data-message-author-role="assistant"]'],
+    // data-message-role: 2026 layout (mobile web, signed-out); data-message-author-role: earlier layout.
+    user: ['[data-message-role="user"]', '[data-message-author-role="user"]'],
+    assistant: ['[data-message-role="assistant"]', '[data-message-author-role="assistant"]'],
     isStreaming: () =>
       document.querySelector('[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]') !== null,
   },
@@ -101,7 +102,7 @@ export function createTracker(ad: Adapter, opts: TrackerOptions): Tracker {
     for (let idx = 0; idx < items.length; idx++) {
       const item = items[idx];
       if (!item || item.role !== 'assistant') continue;
-      const len = (item.el.textContent ?? '').length;
+      const len = textOf(item.el).length;
       let st = tracked.get(item.el);
 
       if (!st) {
@@ -133,14 +134,15 @@ export function createTracker(ad: Adapter, opts: TrackerOptions): Tracker {
     // Text is read and converted to numbers inside this function only.
     let u = idx - 1;
     while (u >= 0 && items[u]?.role !== 'user') u--;
-    const promptText = u >= 0 ? items[u]?.el.textContent ?? '' : '';
+    const textAt = (k: number): string => { const it = items[k]; return it ? textOf(it.el) : ''; };
+    const promptText = u >= 0 ? textAt(u) : '';
     let history = 0;
-    for (let k = 0; k < (u >= 0 ? u : idx); k++) history += estTokens(items[k]?.el.textContent);
+    for (let k = 0; k < (u >= 0 ? u : idx); k++) history += estTokens(textAt(k));
     history = Math.min(C.MAX_TOKENS, history);
 
     const model = getModel(opts.modelId());
     const a = analyze(promptText, model, 'auto', history);
-    const visible = estTokens(items[idx]?.el.textContent);
+    const visible = estTokens(textAt(idx));
     if (visible === 0) return;
     const output = Math.min(C.MAX_TOKENS, model.reasoning ? visible * C.REASONING_MULT : visible);
 
@@ -177,6 +179,22 @@ export function createTracker(ad: Adapter, opts: TrackerOptions): Tracker {
       observer = null;
     },
   };
+}
+
+const NON_TEXT = 'script, style, template, noscript';
+
+/**
+ * The message's readable text. Skips script/style/template/noscript content, which textContent would include
+ * (ChatGPT, for example, embeds large JSON <script> blocks inside reply elements).
+ */
+function textOf(el: Element): string {
+  if (!el.querySelector(NON_TEXT)) return el.textContent ?? '';
+  let out = '';
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.parentElement?.closest(NON_TEXT)) out += n.nodeValue ?? '';
+  }
+  return out;
 }
 
 /** Keep only elements not nested inside another match (avoids counting wrappers twice). */

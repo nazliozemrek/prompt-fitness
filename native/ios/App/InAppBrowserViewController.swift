@@ -231,7 +231,7 @@ final class InAppBrowserViewController: UIViewController {
             return
         }
         let water = waterMl < 10 ? String(format: "%.1f mL", waterMl) : String(format: "%.0f mL", waterMl)
-        var parts = ["\(count) repl\(count == 1 ? "y" : "ies")", "💧 \(water)", String(format: "⚡ %.2f Wh", wh), String(format: "%.1f g CO₂", co2g)]
+        var parts = ["\(count) repl\(count == 1 ? "y" : "ies")", "\(water) water", String(format: "%.2f Wh", wh), String(format: "%.1f g CO₂", co2g)]
         if let lastScore { parts.append("last score \(lastScore)") }
         statsLabel.text = parts.joined(separator: " · ")
     }

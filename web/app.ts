@@ -561,7 +561,7 @@ function configurePlatformCopy(): void {
         'Counts appear here the next time you open the app. Only numbers are shared, through a private on-device App Group.',
       ]
     : [
-        'Install the Prompt Fitness extension for Chrome or Safari.',
+        'The Prompt Fitness browser extension for Chrome, Firefox and Safari is coming soon. Until then, paste prompts into the editor.',
         'Allow access on chatgpt.com, claude.ai and gemini.google.com. It asks for no other sites.',
         'Replies are measured on your device as they finish streaming.',
         'Only the numbers are saved in your browser: time, model, token counts and score.',
@@ -598,11 +598,11 @@ const WHERE_STEPS: Record<string, { heading: string; steps: [string, string][] }
     ],
   },
   web: {
-    heading: 'Use it where you chat',
+    heading: 'Use it with any AI chat',
     steps: [
-      ['puzzle', 'Add the Prompt Fitness extension to Chrome, Firefox or Safari.'],
-      ['message-square', 'Chat as usual on ChatGPT, Claude or Gemini.'],
-      ['sparkles', 'Paste any prompt here to get a tighter version.'],
+      ['message-square', 'Write your prompt as usual in ChatGPT, Claude or Gemini.'],
+      ['text-select', 'Before sending, paste it here.'],
+      ['copy', 'Copy the tighter version back and send that instead.'],
     ],
   },
 };

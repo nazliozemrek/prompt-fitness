@@ -22,6 +22,7 @@
     "android:setup": "bash scripts/setup-android.sh",
     "apple:convert": "bash scripts/build-apple.sh",
     "release:check": "npm run typecheck && npm test && npm run build && npm run check:privacy",
+    "deploy:web": "bash scripts/deploy-web.sh",
     "zip:chrome": "npm run build:ext && cd build/extension-chrome && zip -qr ../prompt-fitness-chrome.zip . && echo '✓ build/prompt-fitness-chrome.zip'",
     "zip:firefox": "npm run build:ext && cd build/extension-firefox && zip -qr ../prompt-fitness-firefox.zip . && echo '✓ build/prompt-fitness-firefox.zip'",
     "icons": "python3 scripts/generate-icons.py"

@@ -160,13 +160,17 @@ export interface DaySummary {
   co2g: number;
   avgScore: number | null;
   rightSized: number | null;
+  /** Average input and output tokens per prompt (0 when empty). */
+  avgIn: number;
+  avgOut: number;
 }
 
 export function summarize(entries: readonly LogEntry[]): DaySummary {
-  let waterL = 0, kWh = 0, co2g = 0, sSum = 0, sN = 0, fSum = 0, fN = 0;
+  let waterL = 0, kWh = 0, co2g = 0, sSum = 0, sN = 0, fSum = 0, fN = 0, inSum = 0, outSum = 0;
   for (const e of entries) {
     const f = compute(getModel(e.m), e.i, e.o);
     waterL += f.waterL; kWh += f.kWh; co2g += f.co2g;
+    inSum += e.i; outSum += e.o;
     if (typeof e.s === 'number') { sSum += e.s; sN++; }
     if (typeof e.f === 'number') { fSum += e.f; fN++; }
   }
@@ -174,15 +178,42 @@ export function summarize(entries: readonly LogEntry[]): DaySummary {
     count: entries.length, waterL, kWh, co2g,
     avgScore: sN ? sSum / sN : null,
     rightSized: fN ? (fSum / fN) * 100 : null,
+    avgIn: entries.length ? inSum / entries.length : 0,
+    avgOut: entries.length ? outSum / entries.length : 0,
   };
 }
 
-export function ecoFitness(summary: DaySummary, budgetL: number): number | null {
+export type EcoFactorKey = 'prompt' | 'output' | 'model' | 'context' | 'footprint';
+export interface EcoFactor { key: EcoFactorKey; label: string; value: number; weight: number; note: string; }
+
+/** Linear 100 → 0 between `good` and `bad` (either direction). */
+const band = (v: number, good: number, bad: number): number =>
+  Math.round(clamp(((bad - v) / (bad - good)) * 100));
+
+/**
+ * The five factors behind Eco-Fitness, each 0–100, with plain-language notes. Thresholds are
+ * rules of thumb, not measurements: they reward the habits that most reduce estimated compute.
+ */
+export function ecoFactors(summary: DaySummary, budgetL: number): EcoFactor[] | null {
   if (summary.avgScore === null) return null;
   const pct = budgetL > 0 ? (summary.waterL / budgetL) * 100 : 0;
-  const budgetScore = pct <= 100 ? 100 : clamp(100 - (pct - 100));
-  const right = summary.rightSized ?? 100;
-  return Math.round(0.5 * summary.avgScore + 0.25 * right + 0.25 * budgetScore);
+  return [
+    { key: 'prompt', label: 'Prompt efficiency', weight: 0.35, value: Math.round(summary.avgScore),
+      note: 'Average prompt score: clear task, no filler or repetition, a set reply length.' },
+    { key: 'output', label: 'Output efficiency', weight: 0.2, value: band(summary.avgOut, 300, 1500),
+      note: 'Replies average ~' + Math.round(summary.avgOut) + ' tokens. Full marks up to ~300; long replies use the most compute.' },
+    { key: 'model', label: 'Model sizing', weight: 0.2, value: Math.round(summary.rightSized ?? 100),
+      note: 'How often the model was no bigger than the task needed.' },
+    { key: 'context', label: 'Unnecessary context', weight: 0.1, value: band(summary.avgIn, 1500, 8000),
+      note: 'Input averages ~' + Math.round(summary.avgIn) + ' tokens. Long chat history is re-sent with every message; start fresh chats for new topics.' },
+    { key: 'footprint', label: 'Footprint vs. your goal', weight: 0.15, value: pct <= 100 ? 100 : Math.round(clamp(100 - (pct - 100))),
+      note: 'Estimated water against your daily goal. Full marks while you stay within it.' },
+  ];
+}
+
+export function ecoFitness(summary: DaySummary, budgetL: number): number | null {
+  const f = ecoFactors(summary, budgetL);
+  return f ? Math.round(f.reduce((sum, x) => sum + x.value * x.weight, 0)) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,6 +251,14 @@ const FILLER_SOURCE = '\\b(?:' + FILLER_PHRASES.join('|') + ')\\b';
 const TASK_RE = /\b(write|explain|summari[sz]e|list|fix|compare|translate|generate|create|analy[sz]e|refactor|debug|draft|rewrite|review|describe|outline|suggest|recommend|plan|design|convert|calculate|find|give|show|help|build|make)\b/i;
 const COMPLEX_RE = /\b(analy[sz]e|architecture|design an?|debug|refactor|prove|proof|optimi[sz]e|step[- ]by[- ]step|trade-?offs?|in[- ]depth|research|strategy|migrat(e|ion))\b/i;
 /** A direct question (ends with "?" and has a question word) is as clear a task as an imperative. */
+const AUDIENCE_RE = /\b(beginners?|novices?|intermediate|advanced|junior|senior|experts?|non-technical|layperson|kids?|children|students?|teens?|audience|readers?|my (?:team|boss|manager|client|customers?)|[0-9]+[- ]year[- ]old)\b/i;
+const GOAL_RE = /\b(so (?:that|i can)|in order to|because|goal|purpose|i(?:'m| am) (?:trying|working|preparing|planning|writing|building)|i need (?:it|this) (?:for|to)|to help me|for my)\b/i;
+const CONSTRAINT_RE = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|using|assume|assuming|given|must|without|only|budget|deadline|within|under|at most|at least|in (?:python|javascript|typescript|java|go|rust|sql|swift|kotlin|c\+\+|c#|english|spanish|french|german|turkish))\b/i;
+const REQUEST_RE = /\b(can|could|would|will) you\b/i;
+/** Whole reply-length instructions, including the ones suggestRewrite adds. */
+const REPLY_INSTRUCTION_RE = /\b(?:keep (?:it|the answer|the explanation|the reply)|answer in|reply with just|reply in|respond in|use \d+ bullet)[^.!?\n]*[.!?]?/gi;
+/** Reply length/format phrases ("in 5 bullets", "under 150 words") count toward reply control, not specificity. */
+const LENGTH_PHRASE_RE = /\b(?:in|under|within|at most|about|keep it under|answer in)?\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s+or\s+(?:\d+|two|three))?\s+(?:short\s+|key\s+|main\s+)?(?:words?|sentences?|bullets?|bullet points?|points?|paragraphs?|lines?)\b/gi;
 const QUESTION_RE = /\b(what|why|how|who|when|where|which|is|are|does|do|can|should)\b[^\n]*\?\s*$/i;
 const ROLE_RE = /\b(you are an?|act as|pretend to be|your role is|always respond|respond only|from now on)\b/i;
 const NUM_WORDS: Readonly<Record<string, number>> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
@@ -242,7 +281,7 @@ export function estimateOutput(text: string, pref: LengthPref, promptTok: number
   else if (/\b(essay|article|story|blog(?: post)?|report|guide|chapter|newsletter|cover letter)\b/.test(t)) { visible = 800; why = 'long-form writing'; }
   else if (/\b(summari[sz]e|summary|tl;?dr)\b/.test(t)) { visible = 250; why = 'summary'; }
   else if (/\btranslat(e|ion)\b/.test(t)) { visible = Math.max(80, Math.round(promptTok * 1.1)); why = 'translation'; }
-  else if (/^\s*(what|who|when|where|which|is|are|does|do|can|should)\b/.test(t) && wc <= 25) { visible = 180; why = 'quick question'; }
+  else if (/^\s*(what|who|when|where|which|is|are|does|do|can|should)\b/.test(t) && !/\b(can|could|would|will) you\b/.test(t) && wc <= 25) { visible = 180; why = 'quick question'; }
   else if (/\b(explain|describe|why|how)\b/.test(t)) { visible = 400; why = 'explanation'; }
 
   const NUM = '(\\d{1,4}|one|two|three|four|five|six|seven|eight|nine|ten)';
@@ -289,7 +328,9 @@ function repetition(words: readonly string[], sentences: readonly string[]): { r
   return { ratio: total ? rep / total : 0, dups };
 }
 
-export interface SubScores { conciseness: number; focus: number; clarity: number; control: number; }
+export interface SubScores { conciseness: number; focus: number; clarity: number; specificity: number; control: number; }
+/** Which kinds of detail the prompt already gives (used for specificity coaching). */
+export interface SpecSignals { audience: boolean; goal: boolean; constraints: boolean; }
 
 export interface Analysis {
   wc: number;
@@ -306,6 +347,7 @@ export interface Analysis {
   sub: SubScores;
   score: number;
   hasRole: boolean;
+  spec: SpecSignals;
   inputTok: number;
   outputTok: number;
   hiddenTok: number;
@@ -336,23 +378,38 @@ export function analyze(text: string, model: Model, pref: LengthPref = 'auto', h
   const complexity: Complexity = hasCode || wc > 150 || COMPLEX_RE.test(prose) ? 'complex' : wc <= 40 ? 'simple' : 'medium';
   const fit = FIT[complexity][model.cls];
 
+  // Specificity: does the request say who it's for, why, and within what limits? A direct factual
+  // question ("Why does X happen?") is specific enough; a request phrased as a question isn't.
+  const content = prose.replace(REPLY_INSTRUCTION_RE, ' ').replace(LENGTH_PHRASE_RE, ' ');
+  const contentWc = (content.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length;
+  const spec: SpecSignals = { audience: AUDIENCE_RE.test(content), goal: GOAL_RE.test(content), constraints: CONSTRAINT_RE.test(content) };
+  const factualQuestion = QUESTION_RE.test(prose) && !REQUEST_RE.test(prose) && wc <= 20;
+  const signals = Number(spec.audience) + Number(spec.goal) + Number(spec.constraints);
+  let specificity = wc < 6 && !hasCode ? 30 : Math.min(100, 40 + 20 * signals + (contentWc >= 12 ? 10 : 0));
+  if (factualQuestion) specificity = Math.max(specificity, 85);
+  if (hasCode) specificity = Math.max(specificity, 70);
+
   const sub: SubScores = {
     conciseness: Math.round(clamp(100 - fillerShare * 400)),
     focus: Math.round(clamp(100 - rep.ratio * 250 - rep.dups * 20)),
     clarity: wc < 3 ? (hasCode ? 50 : 20) : wc < 6 ? 55 : TASK_RE.test(prose) || QUESTION_RE.test(prose) || wc >= 12 ? 100 : 75,
+    specificity,
     control: out.hasLengthCtl && out.hasFormatCtl ? 100 : out.hasLengthCtl || out.hasFormatCtl ? 85 : 45,
   };
   const ctxPenalty = history > 8000 ? 10 : history > 3000 ? 5 : 0;
   const fitPenalty = fit === 0 ? 10 : fit === 0.5 ? 4 : 0;
-  const base = 0.3 * sub.conciseness + 0.25 * sub.focus + 0.25 * sub.clarity + 0.2 * sub.control;
+  const base = 0.25 * sub.conciseness + 0.2 * sub.focus + 0.2 * sub.clarity + 0.15 * sub.specificity + 0.2 * sub.control;
   let score = Math.round(clamp(base - ctxPenalty - fitPenalty));
   if (wc < 3 && !hasCode) score = Math.min(score, 35); // vague prompts cause costly follow-up rounds
+  // Trimming a vague request doesn't make it efficient: it still invites a generic answer and a follow-up.
+  if (specificity <= 40 && !factualQuestion && !hasCode) score = Math.min(score, 70);
 
   const hidden = model.reasoning ? out.visible * (C.REASONING_MULT - 1) : 0;
   return {
     wc, promptTok, historyTok: history, hasCode, fillerWords, fillerShare,
     fillerFound: [...found], rep, out, complexity, fit, sub, score,
     hasRole: ROLE_RE.test(prose),
+    spec,
     inputTok: promptTok + history,
     outputTok: out.visible + hidden,
     hiddenTok: hidden,
@@ -385,12 +442,6 @@ export function buildTips(a: Analysis, model: Model, pref: LengthPref = 'auto'):
     const target = 150;
     const save = base - compute(model, a.inputTok, target * mult).waterL;
     if (save > 0) tips.push({ icon: 'ruler', title: 'Ask for a length or format', body: `Adding "in 5 bullets" or "under 100 words" can cap the reply near ${target} tokens instead of ~${a.out.visible}. Reply length drives most of the footprint.`, save });
-  }
-  if (a.fit < 1) {
-    const lights = MODELS.filter((m) => m.cls === 'light');
-    const alt = lights.find((m) => m.vendor === model.vendor) ?? lights.reduce((x, y) => (x.l10k < y.l10k ? x : y));
-    const save = base - compute(alt, a.inputTok, a.out.visible).waterL;
-    if (save > 0) tips.push({ icon: 'feather', title: `${alt.name} can likely handle this`, body: `This looks like a ${a.complexity} request. A light model would use about ${Math.round((save / base) * 100)}% less water here. Save the bigger models for harder work.`, save });
   }
   if (a.fillerWords >= 3 || (a.fillerShare > 0.08 && a.fillerWords >= 2)) {
     const savedTok = Math.round(a.fillerWords * 1.3);
@@ -442,6 +493,9 @@ export function explainScores(a: Analysis): Record<keyof SubScores, ScoreNote> {
       : a.wc < 6
         ? { ok: false, text: 'Too short to be clear. Say what you want, about what, and for whom, e.g. "Write a Python function that removes duplicates from a list."' }
         : { ok: false, text: 'Start with the task: explain, list, compare, fix, summarize…' },
+    specificity: a.sub.specificity >= 80
+      ? { ok: true, text: 'Specific enough to get a useful first answer.' }
+      : { ok: false, text: `Missing ${missingDetail(a).map((d) => d.label.toLowerCase()).join(', ') || 'detail'}. Adding them avoids a vague first answer and a costly follow-up.` },
     control: hasLen && hasFmt
       ? { ok: true, text: 'Length and format are set, so the reply stays tight.' }
       : hasLen
@@ -452,6 +506,66 @@ export function explainScores(a: Analysis): Record<keyof SubScores, ScoreNote> {
             ? { ok: false, text: 'Likely a short answer anyway, but "in one sentence" guarantees it.' }
             : { ok: false, text: 'No length or format, so the model guesses (often long). Add "in 3 bullets" or "under 100 words".' },
   };
+}
+
+/** One-tap details to add when a prompt is vague. The bracketed part is a placeholder to type over. */
+export interface DetailChip { key: 'audience' | 'goal' | 'constraints' | 'format' | 'length'; label: string; insert: string; }
+
+export function missingDetail(a: Analysis): DetailChip[] {
+  const chips: DetailChip[] = [];
+  if (a.hasCode && a.sub.specificity >= 70) return chips;
+  if (!a.spec.audience) chips.push({ key: 'audience', label: 'Who it\'s for', insert: 'For: [e.g. a beginner]' });
+  if (!a.spec.goal) chips.push({ key: 'goal', label: 'Goal', insert: 'Goal: [what you\'ll use it for]' });
+  if (!a.spec.constraints) chips.push({ key: 'constraints', label: 'Constraints', insert: 'Constraints: [time, budget, tools, limits]' });
+  if (!a.out.hasFormatCtl) chips.push({ key: 'format', label: 'Format', insert: 'Format: [bullets, table or steps]' });
+  if (!a.out.hasLengthCtl) chips.push({ key: 'length', label: 'Length', insert: 'Length: [e.g. under 150 words]' });
+  return chips;
+}
+
+/* ---------------- Right-sized model ---------------- */
+
+export const TIERS: Readonly<Record<ModelClass, { label: string; short: string }>> = Object.freeze({
+  light:    { label: 'Small & fast model', short: 'Small & fast' },
+  standard: { label: 'Standard model',     short: 'Standard' },
+  heavy:    { label: 'Reasoning model',    short: 'Reasoning' },
+});
+const TIER_ORDER: Readonly<Record<ModelClass, number>> = { light: 0, standard: 1, heavy: 2 };
+
+export interface ModelAdvice {
+  tier: ModelClass;
+  label: string;
+  /** Example models in the tier, same vendor first. */
+  examples: Model[];
+  /** The selected model is no bigger than this task needs. */
+  fits: boolean;
+  why: string;
+  /** Estimated % less water by switching to the vendor's example in the tier (null when it already fits). */
+  savePct: number | null;
+  alt: Model | null;
+}
+
+/** Task-fit recommendation: the smallest tier that usually handles this kind of request well. */
+export function recommendModel(a: Analysis, current: Model): ModelAdvice {
+  const tier: ModelClass = a.complexity === 'complex' ? 'standard' : 'light';
+  const why = a.complexity === 'simple'
+    ? 'A short, simple request. Small models usually handle this well.'
+    : a.complexity === 'medium'
+      ? 'An everyday request. Small models usually do well; pick Standard if you need more nuance.'
+      : 'Code, analysis or a long piece. A standard model fits; use a reasoning model only if answers fall short.';
+  const inTier = MODELS.filter((m) => m.cls === tier);
+  const examples = [...inTier.filter((m) => m.vendor === current.vendor), ...inTier.filter((m) => m.vendor !== current.vendor)];
+  const fits = TIER_ORDER[current.cls] <= TIER_ORDER[tier];
+  let savePct: number | null = null;
+  let alt: Model | null = null;
+  if (!fits) {
+    alt = examples[0] ?? null;
+    if (alt) {
+      const now = compute(current, a.inputTok, a.outputTok).waterL;
+      const then = compute(alt, a.inputTok, alt.reasoning ? a.outputTok : a.out.visible).waterL;
+      savePct = now > 0 ? Math.max(0, Math.round((1 - then / now) * 100)) : null;
+    }
+  }
+  return { tier, label: TIERS[tier].label, examples, fits, why, savePct, alt };
 }
 
 export interface Rewrite {
@@ -515,7 +629,9 @@ export function suggestRewrite(text: string, a: Analysis, pref: LengthPref = 'au
       if (dup) dups++; else out.push(s);
     });
     if (dups) changes.push(`Merged ${dups} repeated request${dups === 1 ? '' : 's'} into one.`);
-    return out.join(' ');
+    // "Label: value" lines (For:, Goal:, Constraints:…) keep their own line; other sentences flow as prose.
+    const isLabel = (x: string): boolean => /^[\p{Lu}][\p{L}' ]{1,24}:\s/u.test(x);
+    return out.reduce((acc, x, i) => (i === 0 ? x : acc + (isLabel(x) ? '\n' : ' ') + x), '');
   };
 
   let result = parts.map((p, i) => (i % 2 === 1 ? p : cleanProse(p))).filter((p) => p.trim()).join('\n\n').trim();
@@ -523,7 +639,10 @@ export function suggestRewrite(text: string, a: Analysis, pref: LengthPref = 'au
   if (removedSentences) changes.push(`Dropped ${removedSentences} sentence${removedSentences === 1 ? '' : 's'} that asked nothing (like "thanks in advance").`);
 
   if (!a.out.hasLengthCtl && !a.out.hasFormatCtl && pref === 'auto' && a.out.visible > 200) {
-    const hint = LENGTH_HINTS.find(([re]) => re.test(a.out.why))?.[1] ?? 'Keep the answer under 150 words.';
+    const asksToExplain = /\b(explain|why|how it works|walk me through)\b/i.test(raw);
+    const hint = /^code request/.test(a.out.why) && asksToExplain
+      ? 'Keep the explanation under 100 words.'
+      : LENGTH_HINTS.find(([re]) => re.test(a.out.why))?.[1] ?? 'Keep the answer under 150 words.';
     result = `${result}${a.hasCode ? '\n\n' : ' '}${hint}`;
     changes.push(`Asked for a length ("${hint}") so the reply doesn't run long.`);
   }

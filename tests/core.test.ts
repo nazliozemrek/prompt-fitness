@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  C, MODELS, analyze, buildTips, compute, ecoFitness, estTokens, explainScores, getModel, guessModel,
+  C, MODELS, analyze, buildTips, compute, ecoFactors, ecoFitness, estTokens, explainScores, getModel, guessModel,
+  missingDetail, recommendModel,
   fmtRange, fmtWaterApprox, fmtWaterRange, parseUsageJson, pruneLog, roundHonest, sanitizeEntry, suggestRewrite, summarize,
   type LogEntry,
 } from '../shared/core';
@@ -73,6 +74,36 @@ describe('analyze', () => {
   });
 });
 
+describe('specificity and model sizing', () => {
+  it('rewards audience, goal and constraints', () => {
+    const vague = analyze('Can you help me make a workout plan?', gpt4o)!;
+    const specific = analyze('Create a 4-day beginner hypertrophy workout for a standard gym, with sets, reps and rest periods.', gpt4o)!;
+    expect(vague.sub.specificity).toBeLessThan(60);
+    expect(specific.sub.specificity).toBeGreaterThanOrEqual(80);
+    expect(specific.score).toBeGreaterThan(vague.score);
+  });
+  it('treats a direct factual question as specific enough', () => {
+    expect(analyze('In two sentences, why does saving water matter?', gpt4o)!.sub.specificity).toBeGreaterThanOrEqual(85);
+  });
+  it('offers detail chips only for what is missing', () => {
+    const keys = missingDetail(analyze('Can you help me make a workout plan?', gpt4o)!).map((c) => c.key);
+    expect(keys).toContain('audience');
+    expect(keys).toContain('constraints');
+    expect(missingDetail(analyze('Explain REST APIs to a junior developer in 5 bullet points, with one real-world example.', gpt4o)!)
+      .map((c) => c.key)).not.toContain('audience');
+  });
+  it('recommends the smallest tier that fits, with task-fit wording', () => {
+    const simple = analyze('What is the capital of France?', o1)!;
+    const adv = recommendModel(simple, o1);
+    expect(adv.tier).toBe('light');
+    expect(adv.fits).toBe(false);
+    expect(adv.alt?.vendor).toBe('OpenAI');
+    expect(adv.savePct).toBeGreaterThan(50);
+    const complex = analyze('Refactor this module and explain the trade-offs step by step.', gpt4o)!;
+    expect(recommendModel(complex, gpt4o)).toMatchObject({ tier: 'standard', fits: true, savePct: null });
+  });
+});
+
 describe('coaching', () => {
   const wordy = "Hi there! I hope you're doing well. Could you please explain to me what a REST API is? "
     + 'Could you please explain what a REST API is and how it works? Thank you so much in advance!';
@@ -91,6 +122,13 @@ describe('coaching', () => {
     const r = suggestRewrite(p, analyze(p, gpt4o)!)!;
     expect(r.text).toContain('```js\nconst very = just(); // please\n```');
     expect(r.text.startsWith('Fix this bug:')).toBe(true);
+  });
+  it('keeps "Label: value" detail lines on their own lines', () => {
+    const p = 'Can you help me make a workout plan?\nFor: a beginner\nGoal: build muscle\nConstraints: 4 days a week, standard gym';
+    const r = suggestRewrite(p, analyze(p, gpt4o)!)!;
+    expect(r.text.split('\n').slice(0, 4)).toEqual([
+      'Help me make a workout plan.', 'For: a beginner.', 'Goal: build muscle.', 'Constraints: 4 days a week, standard gym. Keep the answer under 150 words.',
+    ]);
   });
   it('offers no rewrite for lean or very short prompts', () => {
     const lean = 'Explain REST APIs to a junior developer in 5 bullet points, with one real-world example.';
@@ -155,10 +193,20 @@ describe('log helpers', () => {
     ];
     expect(pruneLog(log, now)).toHaveLength(1);
   });
-  it('computes eco-fitness from score, model fit and budget', () => {
+  it('computes eco-fitness from five weighted factors', () => {
     const e: LogEntry = { t: Date.now(), m: 'gemini-flash', i: 100, o: 100, s: 80, f: 1, src: 'playground' };
-    expect(ecoFitness(summarize([e]), 1)).toBe(90);
+    // 0.35 × 80 (prompt) + 0.2 × 100 (output) + 0.2 × 100 (model) + 0.1 × 100 (context) + 0.15 × 100 (footprint)
+    expect(ecoFitness(summarize([e]), 1)).toBe(93);
+    const f = ecoFactors(summarize([e]), 1)!;
+    expect(f.map((x) => x.key)).toEqual(['prompt', 'output', 'model', 'context', 'footprint']);
+    expect(f.reduce((w, x) => w + x.weight, 0)).toBeCloseTo(1);
     expect(ecoFitness(summarize([{ ...e, s: null }]), 1)).toBeNull();
+  });
+  it('lowers output and context factors for long replies and long history', () => {
+    const e: LogEntry = { t: Date.now(), m: 'gpt4o', i: 8000, o: 1500, s: 80, f: 1, src: 'playground' };
+    const f = ecoFactors(summarize([e]), 10)!;
+    expect(f.find((x) => x.key === 'output')?.value).toBe(0);
+    expect(f.find((x) => x.key === 'context')?.value).toBe(0);
   });
 });
 

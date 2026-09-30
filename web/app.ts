@@ -10,7 +10,8 @@ import {
   Send, Settings2, Share2, ShieldCheck, Shuffle, Sparkles, SquareTerminal, Sprout, Target, Trash2, X, Zap,
 } from 'lucide';
 import {
-  C, CLASS_META, MODELS, analyze, buildTips, compute, dayStart, ecoFitness, fmtAuto, fmtMl, fmtN, fmtWater,
+  C, CLASS_META, MODELS, analyze, buildTips, compute, dayStart, ecoFactors, ecoFitness, fmtAuto, fmtMl, fmtN, fmtWater,
+  missingDetail, recommendModel,
   explainScores, fmtRange, fmtWaterApprox, fmtWaterRange, getModel, guessModel, isModelId, parseUsageJson, pruneLog,
   roundHonest, suggestRewrite, summarize,
   type Analysis, type EntrySource, type LengthPref, type LogEntry, type Model, type ModelId,
@@ -102,7 +103,7 @@ function toast(msg: string): void {
 /* ---------------- Live analysis ---------------- */
 
 const SUBS: ReadonlyArray<[keyof Analysis['sub'], string]> = [
-  ['conciseness', 'Conciseness'], ['focus', 'Focus'], ['clarity', 'Clarity'], ['control', 'Reply control'],
+  ['conciseness', 'Conciseness'], ['focus', 'Focus'], ['clarity', 'Clarity'], ['specificity', 'Specificity'], ['control', 'Reply control'],
 ];
 
 function renderSubScores(a: Analysis | null): void {
@@ -146,6 +147,7 @@ function renderRewrite(a: Analysis | null, model: Model): void {
   $('#rewriteImpact').textContent = `Score ${a.score} → ${b.score}` + (less > 0 ? ` · ~${less}% less estimated water` : '');
   $('#beforeText').textContent = original.trim();
   $('#rewriteText').textContent = r.text;
+  $('#rewriteVague').hidden = b.sub.specificity > 40;
   $('#rewriteChanges').replaceChildren(...r.changes.slice(0, 4).map((c) => { const li = document.createElement('li'); li.textContent = c; return li; }));
   const rows: [string, string, string][] = [
     ['Prompt length (est. tokens)', fmtN(a.promptTok), fmtN(b.promptTok)],
@@ -243,6 +245,7 @@ function renderLive(): void {
   $('#liveModel').textContent = model.name;
   $('#tHistory').textContent = fmtN(S.history);
   $('#fpEmpty').hidden = Boolean(a);
+  $('#sampleWrap').hidden = Boolean(a);
   $('#fpBody').hidden = !a;
   const typed = $<HTMLTextAreaElement>('#prompt').value;
   showPromptMsg(typed.length >= C.MAX_PROMPT_CHARS
@@ -261,6 +264,8 @@ function renderLive(): void {
     $('#badgeScore').textContent = '–';
     renderSubScores(null);
     renderRewrite(null, model);
+    renderDetailChips(null);
+    renderRecommendation(null, model);
     renderTips(null, model);
     updateModelChart();
     return;
@@ -284,6 +289,8 @@ function renderLive(): void {
   $('#badgeScore').textContent = `${a.score}%`;
   renderSubScores(a);
   renderRewrite(a, model);
+  renderDetailChips(a);
+  renderRecommendation(a, model);
   renderTips(a, model);
   updateModelChart();
 }
@@ -322,21 +329,34 @@ function renderToday(): void {
   $('#eqPhones').textContent = eq(sum.kWh / C.PHONE_KWH);
   $('#eqFlush').textContent = eq(sum.waterL / C.FLUSH_L);
 
+  const factors = ecoFactors(sum, S.budget);
   const fitness = ecoFitness(sum, S.budget);
   const ring = $<SVGCircleElement & HTMLElement>('#fitRing');
-  if (fitness === null) {
+  const list = $('#fitFactors');
+  if (fitness === null || !factors) {
     $('#fitScore').textContent = '–';
     setRing(ring, 0);
-    $('#fitEff').textContent = '–';
-    $('#fitRight').textContent = '–';
-    $('#fitBudget').textContent = sum.count ? (pct > 100 ? 'over' : 'on track') : '–';
-  } else {
-    animateValue('fitScore', fitness, (v) => { $('#fitScore').textContent = fmtN(v); });
-    setRing(ring, fitness);
-    $('#fitEff').textContent = `${fmtN(sum.avgScore ?? 0)}%`;
-    $('#fitRight').textContent = sum.rightSized === null ? '–' : `${fmtN(sum.rightSized)}%`;
-    $('#fitBudget').textContent = pct > 100 ? 'over' : 'on track';
+    $('#fitSummary').textContent = sum.count
+      ? 'Tracked prompts today have no prompt score yet (for example, imported API usage). Analyze a prompt to see your Eco-Fitness.'
+      : 'Analyze and add a prompt today to see your Eco-Fitness.';
+    list.replaceChildren();
+    return;
   }
+  animateValue('fitScore', fitness, (v) => { $('#fitScore').textContent = fmtN(v); });
+  setRing(ring, fitness);
+  const weakest = factors.reduce((x, y) => (y.value < x.value ? y : x));
+  $('#fitSummary').textContent = weakest.value >= 85
+    ? 'Strong habits across the board today.'
+    : `Biggest room to improve: ${weakest.label.toLowerCase()}.`;
+  // Each factor: value, weight and a bar. Status is also in text ("needs work"), not only in color.
+  list.innerHTML = factors.map((f) => `<li>
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="text-slate-200">${esc(f.label)} <span class="text-[11px] muted">· ${Math.round(f.weight * 100)}%</span></span>
+        <span class="font-mono text-slate-100">${f.value}${f.value < 60 ? ' <span class="text-[11px] text-amberx font-sans">needs work</span>' : ''}</span>
+      </div>
+      <div class="subbar mt-1"><span style="width:${f.value}%;background:${scoreColor(f.value)}"></span></div>
+      <p class="mt-1 text-[11px] muted leading-snug">${esc(f.note)}</p>
+    </li>`).join('');
 }
 
 /* ---------------- Recent activity ---------------- */
@@ -532,13 +552,68 @@ function logCurrentPrompt(): void {
   toast(`Added to your stats (${fmtWaterApprox(f.waterL)} estimated). Today: ${fmtWaterApprox(todayL)}.`);
 }
 
-const SAMPLES = [
-  "Hi there! I hope you're doing well. I was wondering if you could please possibly help me out with something. Could you please explain to me what a REST API is? Could you please explain what a REST API is and how it works? Thank you so much in advance!",
-  'Explain REST APIs to a junior developer in 5 bullet points, with one real-world example.',
-  'code?',
-  'Write a detailed, comprehensive guide on migrating a React app from JavaScript to TypeScript, step by step.',
-  'Summarize the attached meeting notes in 3 bullets: decisions, owners, deadlines.',
+/** One sample per category, each showing a different lesson (filler, vagueness, unbounded length…). */
+const SAMPLES: ReadonlyArray<[string, string]> = [
+  ['Writing', "Hi! Could you please write me an email to my manager asking if I can take Friday off? I'd really appreciate it, thank you so much!"],
+  ['Coding', 'Can you write a function that checks if a string is a palindrome? Please explain how it works in detail too.'],
+  ['Research', 'Tell me everything about climate change: the causes, the effects, the history and the solutions, in a detailed and comprehensive way.'],
+  ['Planning', 'Can you help me plan a trip to Japan?'],
+  ['Learning', "Hi there! I hope you're doing well. I was wondering if you could please possibly help me out with something. Could you please explain to me what a REST API is? Could you please explain what a REST API is and how it works? Thank you so much in advance!"],
+  ['Fitness', 'Can you help me make a workout plan?'],
+  ['Business', 'Write a detailed business plan for my coffee shop idea.'],
 ];
+
+function renderSamples(): void {
+  $('#samples').innerHTML = SAMPLES.map(([cat], i) =>
+    `<button type="button" class="seg !min-h-[40px] border border-white/10 bg-white/[.03]" data-sample="${i}">${esc(cat)}</button>`).join('');
+}
+
+/* ---------------- Specificity chips and model advice ---------------- */
+
+function renderDetailChips(a: Analysis | null): void {
+  const chips = a && (a.sub.specificity < 80 || a.sub.control < 85) ? missingDetail(a) : [];
+  $('#detailWrap').hidden = chips.length === 0;
+  $('#detailChips').innerHTML = chips.map((c) =>
+    `<button type="button" class="seg !min-h-[40px] border border-mint/25 bg-mint/[.06] text-slate-100" data-insert="${esc(c.insert)}">+ ${esc(c.label)}</button>`).join('');
+}
+
+/** Appends a detail line and selects its [placeholder] so the user types straight over it. */
+function insertDetail(line: string): void {
+  const ta = $<HTMLTextAreaElement>('#prompt');
+  const base = ta.value.replace(/\s+$/, '');
+  ta.value = `${base}${base ? '\n' : ''}${line}`;
+  const open = ta.value.lastIndexOf('[');
+  const close = ta.value.lastIndexOf(']');
+  ta.focus();
+  if (open >= 0 && close > open) ta.setSelectionRange(open, close + 1);
+  renderLive();
+}
+
+let recAltId: ModelId | null = null;
+
+function renderRecommendation(a: Analysis | null, model: Model): void {
+  const card = $('#recCard');
+  if (!a) { card.hidden = true; return; }
+  const adv = recommendModel(a, model);
+  $('#recTier').textContent = adv.label;
+  $('#recExamples').textContent = `e.g. ${adv.examples.map((m) => m.name).join(', ')}`;
+  $('#recWhy').textContent = adv.why;
+  const impact = $('#recImpact');
+  const btn = $('#recSwitch');
+  if (adv.fits) {
+    impact.className = 'text-sm text-mint';
+    impact.textContent = `✓ ${model.name} fits this task.`;
+    btn.hidden = true;
+    recAltId = null;
+  } else {
+    impact.className = 'text-sm text-slate-200';
+    impact.textContent = adv.savePct ? `vs. ${model.name}: ~${adv.savePct}% less estimated water` : `${model.name} is bigger than this task needs.`;
+    recAltId = adv.alt?.id ?? null;
+    btn.textContent = adv.alt ? `Use ${adv.alt.name}` : '';
+    btn.hidden = !adv.alt;
+  }
+  card.hidden = false;
+}
 
 function setMode(mode: State['mode']): void {
   S.mode = mode;
@@ -754,7 +829,25 @@ function wire(): void {
     document.getElementById(b.dataset.goto ?? '')?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
   }));
   $('#headerToday').addEventListener('click', () => showToday());
-  $('#sampleBtn').addEventListener('click', () => { ta.value = SAMPLES[S.sample % SAMPLES.length] ?? ''; S.sample++; renderLive(); });
+  $('#samples').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sample]');
+    const sample = btn ? SAMPLES[Number(btn.dataset.sample)] : undefined;
+    if (!sample) return;
+    ta.value = sample[1];
+    renderLive();
+    $('#rewriteCard').hidden ? ta.focus() : $('#playground').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  });
+  $('#detailChips').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-insert]');
+    if (btn?.dataset.insert) insertDetail(btn.dataset.insert);
+  });
+  $('#recSwitch').addEventListener('click', () => {
+    if (!recAltId) return;
+    S.modelId = recAltId;
+    $<HTMLSelectElement>('#model').value = recAltId;
+    renderLive();
+    toast(`Switched to ${getModel(recAltId).name}. Pick it in your AI app too.`);
+  });
   $$('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode === 'extension' ? 'extension' : 'playground')));
   $$('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view === 'models' ? 'models' : 'week')));
   $$('#budgetSeg [data-budget]').forEach((b) => b.addEventListener('click', () => {
@@ -839,6 +932,7 @@ async function syncExtensionEntries(): Promise<void> {
 
 async function init(): Promise<void> {
   buildSelects();
+  renderSamples();
   configurePlatformCopy();
   wire();
   initCharts();

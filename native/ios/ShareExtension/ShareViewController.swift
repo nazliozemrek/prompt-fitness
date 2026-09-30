@@ -57,13 +57,17 @@ final class ShareViewController: UIViewController {
 
 struct CoachResult: Decodable {
     struct Note: Decodable, Hashable { let label: String; let ok: Bool; let text: String }
-    struct Rewrite: Decodable { let text: String; let changes: [String]; let score: Int; let waterMl: Double }
+    struct Rewrite: Decodable { let text: String; let changes: [String]; let score: Int; let waterMl: Double; let waterText: String }
+    struct Recommendation: Decodable { let title: String; let detail: String; let fits: Bool }
     let ok: Bool
     let model: String?
     let score: Int?
     let waterMl: Double?
+    /// Modeled footprint as an honest range, e.g. "~10–41 mL".
+    let waterText: String?
     let notes: [Note]?
     let rewrite: Rewrite?
+    let recommendation: Recommendation?
 }
 
 final class CoachEngine {
@@ -148,13 +152,14 @@ struct CoachView: View {
                             ForEach(CoachModel.Service.allCases) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented)
-                        scoreHeader(score: score, waterMl: r.waterMl ?? 0)
+                        scoreHeader(score: score, waterText: r.waterText ?? "")
                         if let rw = r.rewrite {
-                            rewriteCard(rw, before: score, beforeMl: r.waterMl ?? 0)
+                            rewriteCard(rw, before: score, beforeText: r.waterText ?? "")
                         } else {
                             Label("Already lean. Nothing to cut.", systemImage: "checkmark.seal.fill")
                                 .foregroundColor(.green)
                         }
+                        if let rec = r.recommendation { recommendationCard(rec) }
                         notesSection(r.notes ?? [])
                     } else if model.engineMissing {
                         Text("Couldn't load the coaching rules. Reinstall the app.").foregroundColor(.secondary)
@@ -182,7 +187,7 @@ struct CoachView: View {
         }
     }
 
-    private func scoreHeader(score: Int, waterMl: Double) -> some View {
+    private func scoreHeader(score: Int, waterText: String) -> some View {
         HStack(alignment: .center, spacing: 14) {
             Text("\(score)")
                 .font(.system(size: 44, weight: .bold, design: .rounded))
@@ -191,15 +196,15 @@ struct CoachView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Efficiency score").font(.subheadline).foregroundColor(.secondary)
                 Text(Self.verdict(score)).font(.headline)
-                Text("About \(Self.ml(waterMl)) of water per prompt").font(.footnote).foregroundColor(.secondary)
+                Text("Estimated \(waterText) of water per request").font(.footnote).foregroundColor(.secondary)
             }
         }
     }
 
-    private func rewriteCard(_ rw: CoachResult.Rewrite, before: Int, beforeMl: Double) -> some View {
+    private func rewriteCard(_ rw: CoachResult.Rewrite, before: Int, beforeText: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Try this version", systemImage: "sparkles").font(.headline)
-            Text("Score \(before) → \(rw.score) · \(Self.ml(beforeMl)) → \(Self.ml(rw.waterMl))")
+            Text("Score \(before) → \(rw.score) · \(beforeText) → \(rw.waterText) (est.)")
                 .font(.footnote.monospacedDigit())
                 .foregroundColor(.green)
             Text(rw.text)
@@ -209,7 +214,7 @@ struct CoachView: View {
                 .background(Color(.secondarySystemBackground))
                 .cornerRadius(12)
             VStack(alignment: .leading, spacing: 4) {
-                Text("What changed").font(.subheadline.weight(.semibold))
+                Text("Why this is better").font(.subheadline.weight(.semibold))
                 ForEach(rw.changes, id: \.self) { change in
                     Text("• \(change)").font(.footnote).foregroundColor(.secondary)
                 }
@@ -217,7 +222,7 @@ struct CoachView: View {
             Button {
                 model.copyRewrite()
             } label: {
-                Label(model.copied ? "Copied. Paste it into your chat." : "Copy improved prompt",
+                Label(model.copied ? "Copied ✓ Paste it into your chat." : "Copy optimized prompt",
                       systemImage: model.copied ? "checkmark" : "doc.on.doc")
                     .frame(maxWidth: .infinity)
             }
@@ -227,6 +232,19 @@ struct CoachView: View {
         .padding()
         .background(Color.green.opacity(0.08))
         .cornerRadius(16)
+    }
+
+    private func recommendationCard(_ rec: CoachResult.Recommendation) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Recommended for this task").font(.caption).foregroundColor(.secondary).textCase(.uppercase)
+            Text(rec.title).font(.headline)
+            Text(rec.detail).font(.subheadline).foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+        .accessibilityElement(children: .combine)
     }
 
     private func notesSection(_ notes: [CoachResult.Note]) -> some View {
@@ -246,7 +264,6 @@ struct CoachView: View {
         }
     }
 
-    private static func ml(_ v: Double) -> String { v < 10 ? String(format: "%.1f mL", v) : String(format: "%.0f mL", v) }
     private static func color(for s: Int) -> Color { s >= 70 ? .green : s >= 40 ? .orange : .red }
     private static func verdict(_ s: Int) -> String {
         s >= 85 ? "Lean and clear. Great prompt." : s >= 65 ? "Good, with a little room to trim." : s >= 40 ? "Could be tighter." : "Needs a rewrite to be efficient."

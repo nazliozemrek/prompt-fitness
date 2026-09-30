@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Everything is bundled locally. connect-src 'self' permits only the app's own origin
+     (capacitor://localhost, https://localhost or the hosting origin); no third-party requests are possible. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#060a10">
+<meta name="format-detection" content="telephone=no">
+<title>Prompt Fitness – Better AI results, less wasted compute</title>
+<meta name="description" content="Optimize your prompts, choose a right-sized model, and see the estimated footprint of your AI use. Runs on your device.">
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+
+<body>
+<div class="bg-aura" aria-hidden="true"></div>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6">
+  <header class="pt-6 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="h-12 w-12 shrink-0 rounded-2xl grid place-items-center border border-mint/30 bg-ink-950">
+        <svg viewBox="2 1 20 20" class="w-9 h-9" aria-hidden="true">
+          <defs><linearGradient id="gDrop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4ef0a8"/><stop offset="1" stop-color="#3dd8f5"/></linearGradient></defs>
+          <path d="M12 2.2c-.3.5-6.8 8.6-6.8 13.2a6.8 6.8 0 0 0 13.6 0C18.8 10.8 12.3 2.7 12 2.2z" fill="url(#gDrop)"/>
+          <path d="M9.4 17.6c-.3-2.6 1.6-4.9 4.9-5.1.3 2.9-1.8 5-4.9 5.1z" fill="#0b1a18"/>
+          <path d="M9.3 17.7l5-5.2" stroke="url(#gDrop)" stroke-width=".7" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Prompt Fitness</h1>
+        <p class="text-sm text-slate-200">Better AI results. Less wasted compute.</p>
+        <p class="text-xs muted">Optimize prompts, right-size models, see the estimated footprint.</p>
+        <button type="button" id="headerToday" class="mt-1 text-xs text-mint hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-mint/50 rounded" hidden></button>
+      </div>
+    </div>
+    <button id="openConnect" type="button" class="btn-ghost self-start sm:self-auto"><i data-lucide="message-square-share" class="w-4 h-4 text-mint"></i><span id="connectLabel">Use with ChatGPT &amp; Claude</span></button>
+  </header>
+
+  <ol id="firstRun" class="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" aria-label="How it works" hidden>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">1</span> <b class="text-slate-100">Paste</b> <span class="muted">your prompt</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">2</span> <b class="text-slate-100">Improve</b> <span class="muted">it on your device</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">3</span> <b class="text-slate-100">Compare</b> <span class="muted">before and after</span></li>
+    <li class="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2.5"><span class="font-mono text-mint">4</span> <b class="text-slate-100">Track</b> <span class="muted">your efficiency</span></li>
+  </ol>
+</div>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 pb-10 grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+  <section id="playground" class="card p-5 sm:p-6 lg:col-span-7" aria-labelledby="pgTitle">
+    <h2 id="pgTitle" class="h2"><i data-lucide="sparkles" class="w-5 h-5 text-mint"></i>Improve a prompt</h2>
+    <p class="mt-1 text-sm muted">Paste what you'd send to ChatGPT, Claude or Gemini. You'll get a tighter version and why it's better.</p>
+
+    <div id="extChrome" class="mt-4 hidden items-center justify-between gap-3 rounded-t-2xl border border-b-0 border-white/10 bg-ink-800/80 px-3 py-2 text-xs">
+      <span class="inline-flex items-center gap-2 rounded-lg bg-black/40 px-2.5 py-1 font-mono text-slate-400"><i data-lucide="lock" class="w-3 h-3"></i>your AI chat</span>
+      <span class="inline-flex items-center gap-2 text-mint"><span class="live-dot" aria-hidden="true"></span>Preview of on-page tracking</span>
+    </div>
+
+    <div id="taWrap" class="relative mt-4">
+      <label for="prompt" class="sr-only">Prompt</label>
+      <textarea id="prompt" class="ta !min-h-[128px]" rows="5" maxlength="200000" placeholder="Paste or type a prompt…" aria-describedby="promptMsg"></textarea>
+      <div id="extBadge" class="hidden absolute right-3 bottom-3 items-center gap-2 rounded-full border border-mint/30 bg-ink-950/90 px-3 py-1.5 text-xs shadow-lg" aria-hidden="true">
+        <i data-lucide="sprout" class="w-3.5 h-3.5 text-mint"></i>
+        <span class="font-mono text-aqua" id="badgeWater">0 mL</span>
+        <span class="w-px h-3 bg-white/15"></span>
+        <span class="font-mono text-mint" id="badgeScore">–</span>
+      </div>
+    </div>
+
+    <p id="promptMsg" class="mt-2 text-sm text-amberx" role="status" hidden></p>
+
+    <div id="detailWrap" class="mt-3" hidden>
+      <p class="text-xs text-slate-300">Make it specific: <span class="muted">tap to add, then fill in the brackets</span></p>
+      <div id="detailChips" class="mt-2 flex flex-wrap gap-2"></div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap items-center gap-2">
+      <label for="model" class="text-xs muted">Sending to</label>
+      <div class="relative">
+        <select id="model" class="field !py-2.5 !pr-9"></select>
+        <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
+      </div>
+    </div>
+
+    <div id="sampleWrap" class="mt-3">
+      <p class="text-xs muted">Or try a sample:</p>
+      <div id="samples" class="mt-2 flex flex-wrap gap-2" role="group" aria-label="Sample prompts"></div>
+    </div>
+
+    <p id="leanNote" class="mt-5 rounded-2xl border border-mint/25 bg-mint/[.05] p-4 text-sm text-slate-100" hidden>
+      <i data-lucide="circle-check" class="inline w-4 h-4 text-mint -mt-0.5 mr-1"></i>Already efficient: nothing worth cutting. Send it as is.
+    </p>
+
+    <div id="rewriteCard" class="mt-5 rounded-2xl border border-mint/30 bg-mint/[.06] p-4" hidden>
+      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="wand-sparkles" class="w-4 h-4 text-mint"></i>Optimized version</p>
+        <p id="rewriteImpact" class="text-xs text-mint font-mono"></p>
+      </div>
+
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <figure class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <figcaption class="text-[11px] uppercase tracking-wide muted">Before</figcaption>
+          <p id="beforeText" class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-400"></p>
+        </figure>
+        <figure class="rounded-xl border border-mint/30 bg-black/30 p-3">
+          <figcaption class="text-[11px] uppercase tracking-wide text-mint">After</figcaption>
+          <p id="rewriteText" class="mt-1.5 whitespace-pre-wrap break-words text-base text-slate-100"></p>
+        </figure>
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" id="copyRewrite" class="btn-primary" aria-live="polite"><i data-lucide="copy" class="w-4 h-4"></i><span>Copy optimized prompt</span></button>
+        <button type="button" id="useRewrite" class="btn-ghost"><i data-lucide="pen-line" class="w-4 h-4"></i>Edit in the box</button>
+      </div>
+
+      <p id="rewriteVague" class="mt-3 rounded-lg border border-amberx/25 bg-amberx/[.06] px-3 py-2 text-xs text-amber-100" hidden>Still vague: add who it's for, your goal and constraints with the chips above. A specific request gets a useful answer the first time.</p>
+
+      <p class="mt-4 text-xs font-medium text-slate-200">Why this is better</p>
+      <ul id="rewriteChanges" class="mt-1 space-y-1 text-xs text-slate-300 list-disc pl-4"></ul>
+
+      <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
+        <summary class="flex items-center justify-between gap-3 px-3 py-2.5 min-h-[44px] text-xs text-slate-300">Compare the numbers<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+        <div class="px-3 pb-3 overflow-x-auto">
+          <table class="w-full text-xs">
+            <caption class="sr-only">Before and after comparison</caption>
+            <thead><tr class="muted"><th scope="col" class="text-left font-normal py-1">Metric</th><th scope="col" class="text-right font-normal py-1">Before</th><th scope="col" class="text-right font-normal py-1">After</th></tr></thead>
+            <tbody id="compareRows" class="font-mono text-slate-200"></tbody>
+          </table>
+          <p class="mt-2 text-[11px] muted">Token counts are estimated from text length; the footprint is modeled. Shorter isn't the goal: a clearer request with a set reply length usually costs less overall.</p>
+        </div>
+      </details>
+      <p class="mt-3 text-[11px] muted">Made on your device by rules, not AI. Check it still says what you mean.</p>
+    </div>
+
+    <section id="recCard" class="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4" aria-labelledby="recTitle" hidden>
+      <div class="flex items-center justify-between gap-2">
+        <h3 id="recTitle" class="text-xs uppercase tracking-wide muted">Recommended for this task</h3>
+        <span class="chip bg-white/5 text-slate-300 border border-white/10">Task fit</span>
+      </div>
+      <p id="recTier" class="mt-1.5 font-semibold text-white"></p>
+      <p id="recExamples" class="text-xs muted"></p>
+      <p id="recWhy" class="mt-2 text-sm text-slate-300"></p>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <p id="recImpact" class="text-sm"></p>
+        <button type="button" id="recSwitch" class="btn-ghost !min-h-[40px] !py-1.5" hidden></button>
+      </div>
+    </section>
+
+    <div id="scoreBlock" class="mt-6 pt-6 border-t border-white/10 grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-5 items-center" hidden>
+      <div class="relative w-28 h-28 mx-auto sm:mx-0">
+        <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" fill="none" stroke-width="10" class="ring-track"/>
+          <circle id="effRing" cx="60" cy="60" r="52" fill="none" stroke="#4ef0a8" stroke-width="10" stroke-linecap="round" class="ring-val" stroke-dasharray="326.73" stroke-dashoffset="326.73"/>
+        </svg>
+        <div class="absolute inset-0 grid place-items-center text-center">
+          <div><p class="stat-num text-3xl"><span id="effScore">–</span><span class="text-base text-slate-400">%</span></p><p class="text-[11px] muted">Score</p></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="font-semibold text-white">Why this score</h3>
+        <p id="effVerdict" class="text-sm muted mt-0.5" aria-live="polite">Paste a prompt to see how clear and lean it is.</p>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 text-xs" id="subScores"></div>
+      </div>
+    </div>
+
+    <div id="tipsBlock" class="mt-6 rounded-2xl border border-aqua/20 bg-aqua/[.05] p-4" hidden>
+      <p class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="lightbulb" class="w-4 h-4 text-aqua"></i>More ways to save</p>
+      <ul id="tips" class="mt-3 space-y-3" aria-live="polite"></ul>
+    </div>
+
+    <div class="mt-5 flex flex-wrap items-center gap-2">
+      <button id="sendBtn" type="button" class="btn-ghost"><i data-lucide="plus" class="w-4 h-4 text-mint"></i>Add to my stats</button>
+      <button id="newChatBtn" type="button" class="btn-ghost"><i data-lucide="message-square-plus" class="w-4 h-4"></i>New chat</button>
+      <span id="kbdHint" class="ml-auto hidden md:inline text-xs muted">Ctrl/⌘ + Enter to add</span>
+    </div>
+
+    <details class="mt-4 rounded-xl border border-white/10 bg-black/20">
+      <summary class="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] text-sm text-slate-300">More options<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+      <div class="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div>
+          <label for="lengthPref" class="block mb-1.5 text-slate-300">Expected reply length</label>
+          <div class="relative">
+            <select id="lengthPref" class="field">
+              <option value="auto">Auto-detect from prompt</option>
+              <option value="short">Short (~150 tokens)</option>
+              <option value="medium">Medium (~400 tokens)</option>
+              <option value="long">Long (~1,000 tokens)</option>
+            </select>
+            <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
+          </div>
+        </div>
+        <div>
+          <p class="mb-1.5 text-slate-300">View</p>
+          <div class="seg-group" role="group" aria-label="Mode">
+            <button type="button" class="seg" data-mode="playground" aria-pressed="true">Editor</button>
+            <button type="button" class="seg" data-mode="extension" aria-pressed="false">Chat preview</button>
+          </div>
+        </div>
+        <p class="sm:col-span-2 text-xs muted">Prompt <b id="tPrompt" class="font-mono text-slate-200">0</b> tokens · chat history <b id="tHistory" class="font-mono text-slate-200">0</b> · estimated reply <b id="tOut" class="font-mono text-slate-200">0</b></p>
+      </div>
+    </details>
+  </section>
+
+  <div class="lg:col-span-5 flex flex-col gap-5">
+    <section id="whereCard" class="card p-5 sm:p-6" aria-labelledby="whereTitle">
+      <h2 id="whereTitle" class="h2"><i data-lucide="message-square-share" class="w-5 h-5 text-mint"></i><span id="whereHeading">Use it where you chat</span></h2>
+      <ol id="whereSteps" class="mt-4 space-y-3"></ol>
+      <button type="button" id="whereMore" class="mt-4 text-sm text-mint min-h-[44px] hover:underline focus:outline-none focus-visible:underline">More ways to connect</button>
+    </section>
+
+    <section class="card p-5 sm:p-6" aria-labelledby="thisTitle">
+      <div class="flex items-center justify-between gap-3">
+        <h2 id="thisTitle" class="h2"><i data-lucide="droplet" class="w-5 h-5 text-aqua"></i>Estimated footprint</h2>
+        <span class="chip bg-white/5 text-slate-300 border border-white/10" title="Calculated from model assumptions, not measured">Modeled</span>
+      </div>
+      <p id="fpEmpty" class="mt-3 text-sm muted">Paste a prompt to estimate what one request with <span id="liveModel"></span> uses.</p>
+      <div id="fpBody" hidden>
+        <p class="mt-3 stat-num text-3xl sm:text-4xl text-white" aria-live="polite"><span id="pWater"></span> <span class="text-base font-sans text-aqua">water</span></p>
+        <div class="mt-4 grid grid-cols-2 gap-2.5">
+          <div class="mini">
+            <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 text-amberx"></i>Energy</p>
+            <p id="pEnergy" class="mt-1 stat-num text-lg"></p>
+          </div>
+          <div class="mini">
+            <p class="text-xs muted flex items-center gap-1.5"><i data-lucide="leaf" class="w-3.5 h-3.5 text-mint"></i>Carbon</p>
+            <p id="pCo2" class="mt-1 stat-num text-lg"></p>
+          </div>
+        </div>
+        <p id="outWhy" class="mt-3 text-[11px] muted leading-relaxed"></p>
+      </div>
+      <p class="mt-3 text-[11px] muted leading-relaxed">Estimates are based on model assumptions, estimated output size, and published energy and water figures. They are not direct measurements of a single AI request. <button type="button" class="text-mint underline-offset-2 hover:underline" data-goto="methCard">Methodology</button></p>
+    </section>
+  </div>
+
+  <section id="progressEmpty" class="card p-5 sm:p-6 lg:col-span-12 text-center" aria-labelledby="peTitle" hidden>
+    <h2 id="peTitle" class="text-base font-semibold text-white">No prompts tracked yet</h2>
+    <p class="mt-1 text-sm muted">Analyze your first prompt and tap "Add to my stats" to start building your AI Fitness.</p>
+    <div class="mt-4 flex flex-wrap justify-center gap-2">
+      <button type="button" id="peStart" class="btn-primary"><i data-lucide="sparkles" class="w-4 h-4"></i>Analyze a prompt</button>
+      <button type="button" id="peDemo" class="btn-ghost">Explore with demo data</button>
+    </div>
+  </section>
+
+  <div id="progressWrap" class="contents">
+  <div class="lg:col-span-12 pt-3">
+    <h2 class="text-lg font-semibold text-white">Your progress</h2>
+    <p class="text-sm muted">Prompts you add or track, and what they cost in water, energy and carbon. Estimates only.</p>
+  </div>
+
+  <section id="todayCard" class="card p-5 sm:p-6 scroll-mt-4 lg:col-span-5" aria-labelledby="todayTitle">
+      <div class="flex items-center justify-between gap-3">
+        <h2 id="todayTitle" class="h2"><i data-lucide="calendar-check" class="w-5 h-5 text-mint"></i>Today</h2>
+        <span id="todayCount" class="text-xs muted">0 prompts</span>
+      </div>
+      <div class="mt-4 flex items-center gap-5">
+        <div class="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0">
+          <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
+            <defs><linearGradient id="gFit" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4ef0a8"/><stop offset="1" stop-color="#3dd8f5"/></linearGradient></defs>
+            <circle cx="60" cy="60" r="52" fill="none" stroke-width="10" class="ring-track"/>
+            <circle id="fitRing" cx="60" cy="60" r="52" fill="none" stroke="url(#gFit)" stroke-width="10" stroke-linecap="round" class="ring-val" stroke-dasharray="326.73" stroke-dashoffset="326.73"/>
+          </svg>
+          <div class="absolute inset-0 grid place-items-center text-center">
+            <div><p id="fitScore" class="stat-num text-3xl">–</p><p class="text-[11px] muted">Eco-Fitness</p></div>
+          </div>
+        </div>
+        <p id="fitSummary" class="flex-1 text-sm text-slate-300">Your Eco-Fitness combines how you prompt, how long replies run, model choice, carried context and your daily goal.</p>
+      </div>
+
+      <ul id="fitFactors" class="mt-5 space-y-3 text-sm" aria-label="What makes up your Eco-Fitness"></ul>
+      <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
+        <summary class="flex items-center justify-between gap-3 px-3 py-2.5 min-h-[44px] text-xs text-slate-300">How is this calculated?<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+        <div class="px-3 pb-3 text-xs muted leading-relaxed space-y-2">
+          <p>Eco-Fitness is a weighted average of five factors, each from 0 to 100: prompt efficiency 35%, output efficiency 20%, model sizing 20%, unnecessary context 10%, footprint vs. your goal 15%.</p>
+          <p>The thresholds are rules of thumb that reward the habits which cut the most compute: clear prompts, replies of ~300 tokens or fewer, the smallest model that fits, and fresh chats instead of long history.</p>
+          <p>It describes your habits today, not a measured environmental impact.</p>
+        </div>
+      </details>
+
+      <div class="mt-5">
+        <div class="flex items-center justify-between gap-2 text-sm">
+          <p class="text-slate-300">Daily water goal <span class="muted">(estimated)</span></p>
+          <p><span id="budgetUsed" class="font-mono text-white">0</span> <span class="muted">/ <span id="budgetMax">1.0</span> L used</span></p>
+        </div>
+        <div id="budgetBar" class="mt-2 h-2.5 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label="Daily water budget used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span id="budgetFill" class="block h-full rounded-full transition-all duration-700"></span>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <span id="budgetNote" class="text-xs muted"></span>
+          <div class="seg-group" id="budgetSeg" role="group" aria-label="Daily budget">
+            <button type="button" class="seg" data-budget="0.5">0.5 L</button>
+            <button type="button" class="seg" data-budget="1">1 L</button>
+            <button type="button" class="seg" data-budget="2">2 L</button>
+            <button type="button" class="seg" data-budget="3">3 L</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide muted">Daily AI Fitness</h3>
+        <dl id="dailyStats" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2.5"></dl>
+      </div>
+    </section>
+
+  <section class="card p-5 sm:p-6 lg:col-span-7" aria-labelledby="anTitle">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div>
+        <h2 id="anTitle" class="h2"><i data-lucide="chart-no-axes-combined" class="w-5 h-5 text-mint"></i>Analytics</h2>
+        <p id="chartSub" class="mt-1 text-sm muted">Are you staying within your daily goal? Estimated water per day, with average prompt efficiency.</p>
+      </div>
+      <div class="seg-group" role="group" aria-label="Chart view">
+        <button type="button" class="seg" data-view="week" aria-pressed="true">Last 7 days</button>
+        <button type="button" class="seg" data-view="month" aria-pressed="false">Last 30 days</button>
+        <button type="button" class="seg" data-view="models" aria-pressed="false">Model comparison</button>
+      </div>
+    </div>
+    <div class="relative mt-5 h-[340px]">
+      <div id="weekWrap" class="absolute inset-0"><canvas id="weekChart" role="img" aria-label="Water use over the last 7 days"></canvas></div>
+      <div id="modelWrap" class="absolute inset-0 invisible"><canvas id="modelChart" role="img" aria-label="Water per prompt by model"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card p-5 sm:p-6 lg:col-span-7" aria-labelledby="logTitle">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 id="logTitle" class="h2"><i data-lucide="list" class="w-5 h-5 text-mint"></i>Recent activity</h2>
+      <div class="flex items-center gap-2">
+        <span id="demoTag" class="hidden chip bg-amberx/10 text-amberx border border-amberx/20">includes demo data</span>
+        <button id="demoBtn" type="button" class="hidden text-xs text-mint min-h-[44px] px-2 hover:underline">Load demo week</button>
+        <button id="clearBtn" type="button" class="text-xs text-slate-400 min-h-[44px] px-2 hover:text-coral inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>Clear local data</span></button>
+      </div>
+    </div>
+    <p class="mt-1 text-xs muted">Only numbers are kept (time, model, token counts, score), on this device only. Prompt text is never saved.</p>
+    <ul id="logList" class="mt-4 divide-y divide-white/5"></ul>
+  </section>
+
+  <section id="mileCard" class="card p-5 sm:p-6 lg:col-span-5" aria-labelledby="mileTitle">
+    <h2 id="mileTitle" class="h2"><i data-lucide="award" class="w-5 h-5 text-mint"></i>Milestones</h2>
+    <p class="mt-1 text-xs muted">Small goals for better AI habits. Demo data doesn't count.</p>
+    <ul id="mileList" class="mt-4 space-y-3"></ul>
+  </section>
+
+  </div>
+
+  <section id="methCard" class="card p-5 sm:p-6 lg:col-span-12 scroll-mt-4" aria-labelledby="methTitle">
+    <h2 id="methTitle" class="h2"><i data-lucide="book-open" class="w-5 h-5 text-mint"></i>Methodology</h2>
+    <div class="mt-4 rounded-xl border border-amberx/25 bg-amberx/[.06] p-4 text-sm leading-relaxed text-amber-100/90">
+      <p class="font-semibold text-amber-200">Estimates, not measurements.</p>
+      <p class="mt-1">AI providers don't publish per-request water or energy data, and nobody outside can know which data center served you. That's why footprints are shown as ranges.</p>
+    </div>
+    <dl class="mt-4 space-y-3 text-sm leading-relaxed">
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-mint/10 text-mint mr-1.5">Measured</span>Imported API usage</dt><dd class="muted mt-0.5">Token counts you paste from a provider's usage data are the provider's own numbers.</dd></div>
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-aqua/10 text-aqua mr-1.5">Estimated</span>Tokens and reply size</dt><dd class="muted mt-0.5">Counted from your text (about 4 characters per token) and from what the prompt asks for. Real tokenizers differ.</dd></div>
+      <div><dt class="font-medium text-slate-100"><span class="chip bg-white/5 text-slate-300 border border-white/10 mr-1.5">Modeled</span>Water, energy, carbon</dt><dd class="muted mt-0.5">Calculated from those tokens with published per-model assumptions. We show half to double our central estimate; published figures vary even more.</dd></div>
+      <div><dt class="font-medium text-slate-100">Why they're still useful</dt><dd class="muted mt-0.5">The absolute numbers are uncertain, but the comparisons hold: a shorter reply, a lighter model or less repeated context uses less, whatever the exact figure.</dd></div>
+    </dl>
+    <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
+      <summary class="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] text-sm font-medium text-slate-200">Footprint formula<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+      <div class="px-4 pb-4 text-sm muted leading-relaxed space-y-2">
+<pre class="overflow-x-auto rounded-lg bg-black/40 border border-white/5 p-3 font-mono text-xs text-slate-300">weighted = output + 0.2 × input
+water (L) = weighted / 10,000 × model factor
+energy (kWh) = water / 3.6 L per kWh
+CO₂e (g) = energy × 370 g per kWh</pre>
+        <p>Model factors (0.08–0.11 L light, 0.48–0.52 L standard, 1.45–1.5 L heavy per 10K tokens) follow UC Riverside's "Making AI Less Thirsty", which counts both data-center cooling water and water used to generate the electricity. Differences within a class are illustrative.</p>
+        <p>Input tokens are weighted at 0.2 because reading a prompt takes far less compute than generating a reply. That's why controlling reply length usually saves more than shortening your prompt.</p>
+        <p>For comparison, Google's August 2025 report puts a median Gemini text prompt at about 0.26 mL of on-site water only, so these estimates sit toward the high end.</p>
+      </div>
+    </details>
+    <details class="mt-3 rounded-xl border border-white/10 bg-black/20">
+      <summary class="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] text-sm font-medium text-slate-200">Efficiency score rules<i data-lucide="chevron-down" class="chev w-4 h-4 text-slate-400 transition-transform"></i></summary>
+      <div class="px-4 pb-4 text-sm muted leading-relaxed space-y-2">
+        <p>The score is rule-based and runs on your device; no AI reads your prompt. It weighs conciseness (filler phrases, 25%), focus (repeated phrases or sentences, 20%), clarity (a clear task, 20%), specificity (who it's for, the goal, constraints, 15%) and reply control (a requested length or format, 20%).</p>
+        <p>It then subtracts up to 10 points for a bigger model than the task needs and up to 10 for long chat history carried into every message.</p>
+        <p>Short isn't automatically better: very short or vague requests are capped (at 35 and 70), because follow-up rounds cost more than a clear first message.</p>
+        <p>Tokens are estimated from characters and words (about 4 characters per token in English). Real tokenizers differ by provider. For reasoning models we assume 3 hidden thinking tokens per visible reply token.</p>
+      </div>
+    </details>
+  </section>
+</main>
+
+<footer class="max-w-7xl mx-auto px-4 sm:px-6 pb-10 text-xs muted flex flex-col sm:flex-row justify-between gap-2">
+  <span class="inline-flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-mint"></i>Runs on your device. Prompts are never saved or sent. Coefficients v2026.09</span>
+  <span>The daily budget is a personal goal, not a scientific limit. Not affiliated with OpenAI, Anthropic or Google.</span>
+</footer>
+
+<div id="copyBar" class="fixed inset-x-0 bottom-0 z-30 lg:hidden border-t border-white/10 bg-ink-950/95 px-4 pt-3" style="padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px))" hidden>
+  <button type="button" id="copyBarBtn" class="btn-primary w-full justify-center"><i data-lucide="copy" class="w-4 h-4"></i><span>Copy optimized prompt</span></button>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<dialog id="connect" class="w-[min(720px,calc(100%-1.5rem))] max-h-[88vh] rounded-3xl border border-white/10 bg-ink-900 text-slate-200 p-0 shadow-2xl">
+  <div class="p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Use Prompt Fitness with your AI</h2>
+        <p class="text-sm muted mt-1">Every method works on your device. Your prompts and keys are never saved or sent.</p>
+      </div>
+      <button id="closeConnect" type="button" class="rounded-lg p-2.5 text-slate-400 hover:text-white hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint/50" aria-label="Close"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+
+    <div class="mt-5 flex gap-1 p-1 rounded-xl bg-black/30 border border-white/10" role="tablist">
+      <button type="button" class="tab" role="tab" id="tabA" aria-controls="panelA" aria-selected="true">How to use</button>
+      <button type="button" class="tab" role="tab" id="tabB" aria-controls="panelB" aria-selected="false">API usage</button>
+    </div>
+
+    <!-- Panel A: extension (web, iOS, macOS) or share target (Android) -->
+    <div id="panelA" role="tabpanel" aria-labelledby="tabA" class="mt-5 space-y-4 text-sm leading-relaxed">
+      <div data-platform="ios" class="rounded-2xl border border-mint/25 bg-mint/[.05] p-4">
+        <p class="text-xs font-semibold uppercase tracking-wide text-mint">Works in any app</p>
+        <h3 class="mt-1 font-semibold text-white">Share → Prompt Fitness</h3>
+        <ol class="mt-2 space-y-1.5 list-decimal pl-5 marker:text-mint">
+          <li>In ChatGPT, Claude, Notes or any app, select your prompt.</li>
+          <li>Tap <b class="text-slate-100">Share</b>, then <b class="text-slate-100">Prompt Fitness</b>. (First time: tap <b class="text-slate-100">More</b> and add it to your favorites.)</li>
+          <li>Tap <b class="text-slate-100">Copy improved prompt</b> and paste it back into your chat.</li>
+        </ol>
+        <p class="mt-3 text-xs muted">The text is checked on your phone and never saved.</p>
+      </div>
+      <div data-platform="ios" class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <h3 class="font-semibold text-white">Or chat inside Prompt Fitness</h3>
+        <p class="mt-1 muted">Open your AI here and sign in as usual. Each reply's footprint shows in a panel at the bottom as it finishes.</p>
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="chatgpt.com"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>ChatGPT</button>
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="claude.ai"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>Claude</button>
+          <button type="button" class="btn-ghost justify-center !px-2" data-inapp-site="gemini.google.com"><i data-lucide="globe" class="w-4 h-4 shrink-0 text-mint"></i>Gemini</button>
+        </div>
+        <p id="inappError" class="mt-3 text-xs text-amberx" role="alert" hidden></p>
+        <p class="mt-3 text-xs muted">Measured on this device; only numbers are kept. Google doesn't allow sign-in inside apps, so for Gemini or "Continue with Google" use the Safari extension below.</p>
+      </div>
+      <div data-platform="web">
+        <h3 class="font-semibold text-white">Use it with ChatGPT, Claude or Gemini</h3>
+        <ol id="connectSteps" class="mt-3 space-y-3"></ol>
+        <p class="mt-4 text-xs muted">Prompt Fitness isn't connected to any AI service: you stay in control of what you send. A browser extension that does this automatically is coming soon.</p>
+      </div>
+      <!-- Browser / Safari extension: hidden until it's published and bundled in the iOS app. -->
+      <div data-platform="extension">
+        <h3 class="font-semibold text-white" id="extHeading">Automatic tracking in your browser</h3>
+        <ol class="mt-3 space-y-2.5 list-decimal pl-5 marker:text-mint" id="extSteps"></ol>
+        <div data-platform="ios" class="mt-4 space-y-3">
+          <p class="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Settings path: Settings, Apps, Safari, Extensions, Prompt Fitness">
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Settings</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Apps</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Safari</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-white/10 px-2 py-1 text-slate-100">Extensions</span><span class="muted" aria-hidden="true">›</span>
+            <span class="rounded-md bg-mint/15 px-2 py-1 text-mint">Prompt Fitness</span>
+          </p>
+          <button type="button" id="openSafariSettings" class="btn-primary"><i data-lucide="settings-2" class="w-4 h-4"></i>Open Safari extension settings</button>
+          <p id="safariSettingsHint" class="text-xs muted" hidden></p>
+        </div>
+        <div class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 space-y-2">
+          <p class="font-medium text-slate-100">What it never does</p>
+          <p class="muted">Store or send your messages, read other websites, or run without a visible indicator. You can pause it per site at any time from its popup.</p>
+        </div>
+      </div>
+      <button type="button" id="connectStart" class="btn-primary w-full justify-center"><i data-lucide="sparkles" class="w-4 h-4"></i>Paste a prompt now</button>
+      <div data-platform="android">
+        <h3 class="font-semibold text-white">Share to score</h3>
+        <ol class="mt-3 space-y-2.5 list-decimal pl-5 marker:text-mint">
+          <li>In any AI app or browser, select your prompt text.</li>
+          <li>Tap Share and choose Prompt Fitness.</li>
+          <li>The prompt opens in the playground with its score and tips. Nothing is saved until you tap Log prompt, and even then only the numbers are kept.</li>
+        </ol>
+        <p class="mt-3 muted">Mobile Chrome doesn't support extensions, so automatic tracking isn't available on Android.</p>
+      </div>
+    </div>
+
+    <!-- Panel B: API usage -->
+    <div id="panelB" role="tabpanel" aria-labelledby="tabB" class="mt-5 space-y-4 text-sm leading-relaxed hidden">
+      <h3 class="font-semibold text-white">Zero-storage API usage tracking</h3>
+      <div class="rounded-xl border border-amberx/25 bg-amberx/[.06] p-4 text-amber-100/90">
+        <p class="font-medium text-amber-200 flex items-center gap-2"><i data-lucide="key-round" class="w-4 h-4"></i>Why there's no API key field</p>
+        <p class="mt-1">Usage APIs from AI providers require an organization admin key, which can manage your whole account. Don't paste admin keys into any app, including this one.</p>
+      </div>
+      <p class="font-medium text-slate-100">Safer ways to add real usage</p>
+      <ol class="space-y-2.5 list-decimal pl-5 marker:text-mint">
+        <li>Log the <code class="font-mono text-mint">usage</code> object your own code already receives. Your key stays in your app; only token counts come here.</li>
+        <li>Paste a single usage JSON below. It's parsed on this device and nothing is sent anywhere.</li>
+      </ol>
+      <div>
+        <label for="usageJson" class="block mb-1.5 text-slate-300">Usage JSON (OpenAI, Anthropic or Gemini format)</label>
+        <textarea id="usageJson" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off" class="ta !min-h-[110px] font-mono !text-xs" placeholder='{"model":"claude-3-5-sonnet","usage":{"input_tokens":1840,"output_tokens":512}}'></textarea>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <div class="relative">
+            <select id="usageModel" class="field !py-2" aria-label="Model for imported usage"></select>
+            <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
+          </div>
+          <button id="usageExample" type="button" class="btn-ghost !py-2">Fill example</button>
+          <button id="usageImport" type="button" class="btn-primary !py-2"><i data-lucide="download" class="w-4 h-4"></i>Import usage</button>
+        </div>
+        <p id="usageMsg" class="mt-2 text-xs" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+</dialog>
+</body>
+</html>
